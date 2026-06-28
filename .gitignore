@@ -1,0 +1,47 @@
+# Node
+node_modules/
+*.log
+.env
+.env.local
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Build artifacts
+dist/
+build/
+target/
+*.so
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets (never commit)
+*.pem
+*.key
+*.p12
+secrets/
+*.env.production
+
+# Test artifacts
+.coverage
+.pytest_cache/
+.tox/
+
+# ML model artifacts (large binaries belong in registry, not repo)
+*.pt
+*.pth
+*.onnx
+*.gguf
+checkpoints/

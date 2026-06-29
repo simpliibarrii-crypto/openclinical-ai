@@ -26,6 +26,45 @@ from nacl.exceptions import BadSignatureError
 logger = logging.getLogger("openclinical.runtime.models")
 
 
+# -- harness system prompt ---------------------------------------------------
+
+
+_HARNESS_PROMPT: str | None = None
+_HARNESS_PATH: Path | None = None
+
+
+def load_harness_prompt(docs_dir: Path) -> str:
+    """Load the AI governance harness system prompt from docs/CLAUDE.md.
+
+    This prompt is injected into every inference call via adapters.
+    It encodes the factual accuracy mandate, anti-mandates, and
+    audience (healthcare practitioners) configuration.
+
+    Returns the prompt text. Uses a module-level cache so it's
+    loaded once and reused. If the file doesn't exist, returns
+    a minimal fallback.
+    """
+    global _HARNESS_PROMPT, _HARNESS_PATH
+    path = docs_dir / "CLAUDE.md"
+    if _HARNESS_PROMPT is not None and _HARNESS_PATH == path:
+        return _HARNESS_PROMPT
+
+    if path.exists():
+        _HARNESS_PROMPT = path.read_text()
+        _HARNESS_PATH = path
+        logger.info("loaded harness system prompt from %s (%d chars)", path, len(_HARNESS_PROMPT))
+        return _HARNESS_PROMPT
+
+    logger.warning("harness prompt not found at %s — using fallback", path)
+    _HARNESS_PROMPT = (
+        "You are openclinical-ai. You serve healthcare practitioners. "
+        "Provide factual, unfiltered information. Do not add medical disclaimers. "
+        "Cite sources when available. Be honest about uncertainty."
+    )
+    _HARNESS_PATH = path
+    return _HARNESS_PROMPT
+
+
 class ModelSignatureError(Exception):
     """Raised when a model's signature is invalid or missing."""
     pass
@@ -71,7 +110,15 @@ class ModelAdapter:
 
     Each model type implements its own adapter. Adapters are pluggable so
     real biology + clinical models can be swapped in.
+
+    system_prompt is the governance harness from docs/CLAUDE.md — injected
+    into every inference call when using real LLMs. Heuristic adapters
+    (like PSWShiftHandoffAdapter) ignore it, but it's available for any
+    adapter that makes real model calls.
     """
+
+    def __init__(self, system_prompt: str | None = None) -> None:
+        self.system_prompt = system_prompt
 
     async def run(self, inputs: dict[str, Any]) -> dict[str, Any]:
         """Run inference. Override in subclasses."""
@@ -96,6 +143,9 @@ class PSWShiftHandoffAdapter(ModelAdapter):
     Real PSW AI will replace this with a fine-tuned clinical LLM or
     a multi-modal model trained on anonymized PSW shift notes.
     """
+
+    def __init__(self, system_prompt: str | None = None) -> None:
+        super().__init__(system_prompt=system_prompt)
 
     async def run(self, inputs: dict[str, Any]) -> dict[str, Any]:
         """Process PSW shift handoff inputs."""
@@ -308,11 +358,12 @@ def _generate_summary(
 class ModelRegistry:
     """Registry of signed models."""
 
-    def __init__(self, registry_path: Path) -> None:
+    def __init__(self, registry_path: Path, system_prompt: str | None = None) -> None:
         self.registry_path = registry_path
         self.registry_path.mkdir(parents=True, exist_ok=True)
         self.loaded_models: dict[str, LoadedModel] = {}
         self.signing_keys: dict[str, VerifyKey] = {}
+        self.system_prompt = system_prompt
 
     async def load_all(self) -> int:
         """Load all signed models from the registry path."""
@@ -367,10 +418,10 @@ class ModelRegistry:
 
         # MVP: heuristic adapter for PSW shift handoff
         if model_id == "psw-shift-handoff":
-            adapter = PSWShiftHandoffAdapter()
+            adapter = PSWShiftHandoffAdapter(system_prompt=self.system_prompt)
         else:
             logger.warning("no adapter for model type %s — loading as passthrough", model_type)
-            adapter = PSWShiftHandoffAdapter()  # MVP fallback
+            adapter = PSWShiftHandoffAdapter(system_prompt=self.system_prompt)  # MVP fallback
 
         card = ModelCard(**manifest.get("card", {}))
 

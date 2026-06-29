@@ -21,6 +21,9 @@ ROOT = Path("/workspace/openclinical-ai-scaffold")
 FILES = [
     ".editorconfig",
     ".gitignore",
+    "biology_ai/__init__.py",
+    "biology_ai/generation/__init__.py",
+    "biology_ai/generation/adapters.py",
     "CONTRIBUTING.md",
     "Dockerfile",
     "LICENSE",
@@ -39,6 +42,7 @@ FILES = [
     "run_dev.sh",
     "runtime/__init__.py",
     "runtime/audit.py",
+    "runtime/bio_security.py",
     "runtime/config.py",
     "runtime/consent.py",
     "runtime/models.py",
@@ -50,6 +54,7 @@ FILES = [
     "tools/push_to_github.py",
     "tools/sign_manifest.py",
     "tools/smoke_test.sh",
+    "tools/smoke_test_generation.sh",
 ]
 
 

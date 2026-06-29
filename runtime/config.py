@@ -24,6 +24,11 @@ class Settings:
             os.getenv("OPENCLINICAL_CONSENT_PATH", "/var/lib/openclinical/consent")
         )
 
+        # Tenants path — multi-tenant registry
+        self.tenants_path = Path(
+            os.getenv("OPENCLINICAL_TENANTS_PATH", "/var/lib/openclinical/tenants")
+        )
+
         # CORS — who can call the runtime from a browser
         cors_origins = os.getenv("OPENCLINICAL_CORS_ORIGINS", "*")
         self.allowed_origins = cors_origins.split(",") if cors_origins != "*" else ["*"]

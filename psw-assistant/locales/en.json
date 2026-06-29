@@ -27,10 +27,15 @@
   "setup.magic": "Magic link",
   "setup.runtime_url": "Runtime URL",
   "setup.signin": "Sign in & load my visits",
+  "setup.facility": "Facility ID",
+  "setup.floor": "Floor",
   "setup.family_portal": "Family portal (read-only)",
   "setup.unreachable": "runtime unreachable",
 
   "today.title": "Today's visits",
+  "today.plans_loaded": "Care plans loaded",
+  "today.residents": "residents",
+  "today.high_fall_risk": "high fall risk",
   "today.hint": "Voice-first. Tap a visit to start documentation. GPS check-in verifies you arrived. Clock-out captures billing-ready timestamps.",
   "today.refresh": "Refresh",
   "today.no_visits": "No visits scheduled for today.",
@@ -74,6 +79,15 @@
   "audit.hint": "Every inference + every consent decision is logged to the tenant-scoped audit log. Audit data is encrypted with your agency's keys.",
   "audit.refresh": "Refresh audit",
   "audit.none": "No audit events yet for this tenant.",
+
+  "careplan.fall_risk": "Fall risk",
+  "careplan.conditions": "Conditions",
+  "careplan.flags": "Flags",
+
+  "callbell.alert": "Call Bell Alert",
+  "callbell.bathroom": "Bathroom",
+  "callbell.wander": "Wander Alert",
+  "callbell.emergency": "EMERGENCY",
 
   "family.title": "Family portal",
   "family.hint": "Read-only view of your loved one's care. Family caregivers see only the family-visible notes the PSW wrote + the visit timeline. No PHI. No clinical detail.",

@@ -24,6 +24,7 @@ FILES = [
     "biology_ai/__init__.py",
     "biology_ai/generation/__init__.py",
     "biology_ai/generation/adapters.py",
+    "consent/default-psw-brian.consent.json",
     "CONTRIBUTING.md",
     "Dockerfile",
     "LICENSE",
@@ -41,14 +42,20 @@ FILES = [
     "registry/psw-shift-handoff.v1.0.0.manifest.json",
     "run_dev.sh",
     "runtime/__init__.py",
+    "runtime/affordability.py",
     "runtime/audit.py",
     "runtime/bio_security.py",
     "runtime/config.py",
     "runtime/consent.py",
+    "runtime/cost.py",
+    "runtime/efficient.py",
     "runtime/models.py",
     "runtime/sanitize.py",
     "runtime/server.py",
     "runtime/tenants.py",
+    "tenants/tenants.json",
+    "tests/test_affordability.py",
+    "tests/test_efficient.py",
     "tests/test_substrate.py",
     "tools/grant_consent.py",
     "tools/push_to_github.py",
@@ -103,10 +110,10 @@ def push_file(rel_path: str, sha: str | None) -> bool:
     content_b64 = base64.b64encode(content).decode("ascii")
 
     payload = {
-              "message": f"multi-tenant substrate v0.2.0: {rel_path}",
-              "content": content_b64,
-              "branch": "main",
-          }
+                    "message": f"openclinical-ai v0.3.0 affordability tier: {rel_path}",
+                    "content": content_b64,
+                    "branch": "main",
+                }
     if sha:
         payload["sha"] = sha
 

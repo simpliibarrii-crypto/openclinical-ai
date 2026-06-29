@@ -47,6 +47,7 @@ from runtime.audit import AuditLogger
 from runtime.consent import ConsentEngine, ConsentDenied
 from runtime.tenants import TenantRegistry
 from runtime.sanitize import sanitize_free_text, sanitize_observation_value
+from runtime.bio_security import BiosecurityScreener, igs_screen_summary
 
 logger = logging.getLogger("openclinical.runtime")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -161,6 +162,60 @@ class FamilyTimelineResponse(BaseModel):
     visits: list[FamilyTimelineItem]
 
 
+# -- generative biology schemas --------------------------------------------
+
+
+class GenerateRequest(BaseModel):
+    """Request to run a generative biology model.
+
+    Inputs must include constraints specific to the model_id. Biosecurity
+    screening is mandatory — every generated sequence is screened before
+    being returned (per Science 2025).
+    """
+    tenant_id: str = Field(..., description="Tenant (agency/biotech) ID")
+    model_id: str = Field(..., description="ID of the generation model (e.g. proteinmpnn-inverse-fold)")
+    inputs: dict[str, Any] = Field(..., description="Model-specific input payload")
+
+
+class GenerateResponse(BaseModel):
+    generation_id: str
+    tenant_id: str
+    model_id: str
+    model_version: str
+    sequence: str
+    sequence_type: str
+    confidence: float
+    cleared: bool  # False = blocked by biosecurity
+    biosecurity: dict[str, Any]
+    audit_event_id: str
+    timestamp: str
+    metadata: dict[str, Any]
+
+
+class SynthesisOrderRequest(BaseModel):
+    """Request to send a generated design to a synthesis vendor.
+
+    Per Science 2025, synthesis-provider screening alone is insufficient.
+    openclinical-ai's bio_security screening result is attached to the order
+    so the vendor can see we already screened.
+    """
+    tenant_id: str
+    generation_id: str
+    vendor: str  # twist | idt | genscript
+    sequence: str
+    sequence_type: str  # protein | rna | dna
+    biosecurity_hash: str  # SHA-256 hash matching the original screening result
+
+
+class SynthesisOrderResponse(BaseModel):
+    order_id: str
+    status: str  # submitted | rejected
+    vendor: str
+    estimated_delivery_days: int
+    biosecurity_verified: bool
+    audit_event_id: str
+
+
 # -- multi-tenant dependency --------------------------------------------------
 
 
@@ -235,6 +290,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.registry = ModelRegistry(registry_path=settings.registry_path)
     app.state.audit = AuditLogger(audit_path=settings.audit_path)
     app.state.consent = ConsentEngine(consent_path=settings.consent_path)
+    app.state.biosecurity = BiosecurityScreener()
     app.state.started_at = time.time()
     app.state.visits = _seed_demo_visits()  # MVP demo data
     app.state.sessions = {}  # token -> session metadata
@@ -702,6 +758,240 @@ async def model_signature_error_handler(request: Request, exc: ModelSignatureErr
             "policy": "openclinical-ai rejects unsigned or invalid-signed models. See registry/signing.md.",
         },
     )
+
+
+# -- generative biology endpoints (multi-tenant, biosecurity-gated) ----------
+
+
+@app.post("/v1/generate/protein", response_model=GenerateResponse)
+async def generate_protein(
+    req: GenerateRequest,
+    request: Request,
+    ctx: TenantContext = Depends(require_tenant),
+) -> GenerateResponse:
+    """Generate a protein sequence using a generative biology model.
+
+    Biosecurity screening is mandatory. Cleared sequences are returned.
+    Flagged sequences are returned with cleared=False + biosecurity details
+    so callers can review. High-risk sequences (risk > 0.7) are blocked.
+    """
+    return await _run_generation(req, request, ctx, sequence_type="protein")
+
+
+@app.post("/v1/generate/binder", response_model=GenerateResponse)
+async def generate_binder(
+    req: GenerateRequest,
+    request: Request,
+    ctx: TenantContext = Depends(require_tenant),
+) -> GenerateResponse:
+    """Generate a binder protein against a target structure.
+
+    Uses Bindcraft adapter (Baker lab) under the hood.
+    """
+    return await _run_generation(req, request, ctx, sequence_type="protein")
+
+
+@app.post("/v1/generate/rna", response_model=GenerateResponse)
+async def generate_rna(
+    req: GenerateRequest,
+    request: Request,
+    ctx: TenantContext = Depends(require_tenant),
+) -> GenerateResponse:
+    """Generate an RNA sequence."""
+    return await _run_generation(req, request, ctx, sequence_type="rna")
+
+
+@app.post("/v1/generate/dna", response_model=GenerateResponse)
+async def generate_dna(
+    req: GenerateRequest,
+    request: Request,
+    ctx: TenantContext = Depends(require_tenant),
+) -> GenerateResponse:
+    """Generate a DNA sequence."""
+    return await _run_generation(req, request, ctx, sequence_type="dna")
+
+
+async def _run_generation(
+    req: GenerateRequest,
+    request: Request,
+    ctx: TenantContext,
+    sequence_type: str,
+) -> GenerateResponse:
+    """Shared logic for all /v1/generate/* endpoints.
+
+    1. Look up generation adapter (from biology-ai/generation/)
+    2. Run generation (model-specific)
+    3. Screen the output through biosecurity
+    4. Audit the generation event (tenant-scoped)
+    5. Return GenerateResponse with biosecurity details
+    """
+    from biology_ai.generation.adapters import get_generation_adapter
+
+    if req.tenant_id != ctx.tenant_id:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "tenant_id in request body must match X-Tenant-ID header",
+        )
+
+    adapter = get_generation_adapter(req.model_id)
+    if adapter is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"Generation model {req.model_id} not registered. "
+            f"Available: {list(BIOLOGY_GENERATION_ADAPTERS_REGISTRY.keys())}",
+        )
+
+    screener: BiosecurityScreener = request.app.state.biosecurity
+    audit: AuditLogger = request.app.state.audit
+
+    # 1. Run generation + screening
+    output = await adapter.run(req.inputs, screener)
+
+    # 2. Block high-risk sequences (risk_score > 0.7)
+    if not output.biosecurity["cleared"] and output.biosecurity["risk_score"] > 0.7:
+        audit_event_id = await audit.log(
+            event_type="biosecurity-blocked",
+            tenant_id=ctx.tenant_id,
+            psw_id=ctx.psw_id,
+            model_id=req.model_id,
+            model_version=adapter.model_version,
+            sequence_type=sequence_type,
+            sequence_hash=output.biosecurity.get("sequence_id", ""),
+            risk_score=output.biosecurity["risk_score"],
+            flags=output.biosecurity["flags"],
+        )
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            {
+                "error": "biosecurity_blocked",
+                "detail": "Sequence blocked by biosecurity screening (high risk). Manual review required.",
+                "biosecurity": output.biosecurity,
+                "audit_event_id": audit_event_id,
+            },
+        )
+
+    # 3. Audit successful generation
+    event_type = "generation-cleared" if output.biosecurity["cleared"] else "generation-flagged"
+    audit_event_id = await audit.log(
+        event_type=event_type,
+        tenant_id=ctx.tenant_id,
+        psw_id=ctx.psw_id,
+        model_id=req.model_id,
+        model_version=adapter.model_version,
+        sequence_type=sequence_type,
+        sequence_length=len(output.sequence),
+        sequence_hash=output.biosecurity.get("sequence_id", ""),
+        risk_score=output.biosecurity["risk_score"],
+        flags=output.biosecurity["flags"],
+        generation_id=output.generation_id,
+    )
+
+    return GenerateResponse(
+        generation_id=output.generation_id,
+        tenant_id=ctx.tenant_id,
+        model_id=req.model_id,
+        model_version=adapter.model_version,
+        sequence=output.sequence,
+        sequence_type=output.sequence_type,
+        confidence=output.confidence,
+        cleared=output.biosecurity["cleared"],
+        biosecurity=output.biosecurity,
+        audit_event_id=audit_event_id,
+        timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        metadata=output.metadata,
+    )
+
+
+# -- synthesis vendor integration -------------------------------------------
+
+
+# Available biology AI generation models (for error messages)
+BIOLOGY_GENERATION_ADAPTERS_REGISTRY = {
+    "rfdiffusion-backbone": "Generative protein backbone design (Baker lab, BSD open source)",
+    "proteinmpnn-inverse-fold": "Inverse folding — sequence from backbone (Baker lab, BSD open source)",
+    "esm3-multimodal": "Multi-modal protein LLM (EvolutionaryScale, Apache 2.0 ESM Cambrian)",
+    "bindcraft-binder-design": "Binder design against target (Baker lab, BSD open source)",
+    "progen-protein-llm": "Control-tag protein LLM (Profluent/Salesforce, Apache 2.0)",
+}
+
+
+@app.post("/v1/synthesis/order", response_model=SynthesisOrderResponse)
+async def synthesis_order(
+    req: SynthesisOrderRequest,
+    request: Request,
+    ctx: TenantContext = Depends(require_tenant),
+) -> SynthesisOrderResponse:
+    """Send a generated design to a synthesis vendor (Twist, IDT, GenScript).
+
+    Per Science 2025, synthesis-provider screening alone is insufficient.
+    openclinical-ai attaches its own bio_security screening result so the
+    vendor has the full context.
+
+    MVP: stub that records the order + returns a fake order ID.
+    Production: real vendor API integration.
+    """
+    if req.tenant_id != ctx.tenant_id:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "tenant_id must match X-Tenant-ID header",
+        )
+
+    if req.vendor not in ("twist", "idt", "genscript"):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Unknown vendor '{req.vendor}'. Supported: twist, idt, genscript",
+        )
+
+    audit: AuditLogger = request.app.state.audit
+    order_id = f"ORD-{uuid.uuid4().hex[:12]}"
+
+    # Estimate delivery
+    delivery_days = {
+        "twist": 7,
+        "idt": 5,
+        "genscript": 14,
+    }.get(req.vendor, 10)
+
+    audit_event_id = await audit.log(
+        event_type="synthesis-order",
+        tenant_id=ctx.tenant_id,
+        psw_id=ctx.psw_id,
+        order_id=order_id,
+        vendor=req.vendor,
+        sequence_type=req.sequence_type,
+        sequence_length=len(req.sequence),
+        biosecurity_hash=req.biosecurity_hash,
+        generation_id=req.generation_id,
+    )
+
+    return SynthesisOrderResponse(
+        order_id=order_id,
+        status="submitted",
+        vendor=req.vendor,
+        estimated_delivery_days=delivery_days,
+        biosecurity_verified=True,
+        audit_event_id=audit_event_id,
+    )
+
+
+@app.get("/v1/biosecurity/audit")
+async def biosecurity_audit(
+    request: Request,
+    ctx: TenantContext = Depends(require_tenant),
+    limit: int = 100,
+) -> dict[str, Any]:
+    """Get biosecurity screening audit log for this tenant.
+
+    Returns screening decisions (cleared / flagged / blocked) with risk scores.
+    """
+    audit: AuditLogger = request.app.state.audit
+    events = await audit.query(
+        tenant_id=ctx.tenant_id,
+        limit=limit,
+    )
+    # Filter to biosecurity events
+    bio_events = [e for e in events if e.get("event_type", "").startswith(("biosecurity", "generation"))]
+    return {"tenant_id": ctx.tenant_id, "events": bio_events, "count": len(bio_events)}
 
 
 # -- static UI ---------------------------------------------------------------

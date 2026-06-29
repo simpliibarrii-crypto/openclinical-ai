@@ -4,10 +4,11 @@
 
   "app.name": "openclinical-ai",
   "app.tagline": "Home Care Visit Assistant",
-  "app.subtagline": "sovereign clinical AI · Apache 2.0",
+  "app.subtagline": "the hub of AI for healthcare & biology · Apache 2.0",
 
   "tab.visits": "Visits",
   "tab.connect": "Connect",
+  "tab.news": "News",
   "tab.settings": "Settings",
 
   "setup.title": "Sign in to your agency",
@@ -125,6 +126,12 @@
   "settings.license": "License",
   "settings.repo": "GitHub",
   "settings.signout": "Sign out",
+
+  "news.title": "Biology & Biotech News",
+  "news.hint": "Global biology and biotechnology news. Top stories, companies to watch, and what to look forward to. Curated daily.",
+  "news.top_stories": "Top Stories",
+  "news.companies": "Companies to Watch",
+  "news.upcoming": "What to Look Forward To",
 
   "server.checking": "checking…",
   "server.unreachable": "runtime unreachable",

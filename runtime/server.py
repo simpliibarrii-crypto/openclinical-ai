@@ -52,7 +52,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from runtime.config import settings
-from runtime.models import ModelRegistry, ModelSignatureError
+from runtime.models import ModelRegistry, ModelSignatureError, load_harness_prompt
 from runtime.audit import AuditLogger
 from runtime.consent import ConsentEngine, ConsentDenied
 from runtime.tenants import TenantRegistry
@@ -372,8 +372,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialize runtime state on startup, clean up on shutdown."""
     logger.info("openclinical-ai runtime starting — version %s", __import__("runtime").__version__)
 
+    # Load the AI governance harness system prompt
+    docs_dir = PathLib(__file__).resolve().parents[1] / "docs"
+    harness_prompt = load_harness_prompt(docs_dir)
+    app.state.harness_prompt = harness_prompt
+
     app.state.tenants = TenantRegistry(tenants_path=settings.tenants_path)
-    app.state.registry = ModelRegistry(registry_path=settings.registry_path)
+    app.state.registry = ModelRegistry(registry_path=settings.registry_path, system_prompt=harness_prompt)
     app.state.audit = AuditLogger(audit_path=settings.audit_path)
     app.state.consent = ConsentEngine(consent_path=settings.consent_path)
     app.state.biosecurity = BiosecurityScreener()

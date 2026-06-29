@@ -35,6 +35,7 @@ FILES = [
     "docs/PROJECT-BRIEF.md",
     "docs/THREAT-MODEL.md",
     "psw-assistant/app.js",
+    "psw-assistant/biology_news.json",
     "psw-assistant/index.html",
     "psw-assistant/manifest.json",
     "psw-assistant/style.css",
@@ -114,7 +115,7 @@ def push_file(rel_path: str, sha: str | None) -> bool:
     content_b64 = base64.b64encode(content).decode("ascii")
 
     payload = {
-                    "message": f"openclinical-ai v0.4.0 visual+i18n+connectors: {rel_path}",
+                    "message": f"openclinical-ai v0.4.1 maple-leaf+bio-news+hub: {rel_path}",
                     "content": content_b64,
                     "branch": "main",
                 }

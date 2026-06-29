@@ -7,6 +7,8 @@ Hardened for healthcare:
 - Visit lifecycle (clock-in / clock-out with GPS)
 - Family portal (read-only family-visible view)
 - Consent + audit scoped by tenant
+- Affordability tiers (DeepSeek V4-Pro / V4-Flash pricing model)
+- Per-tenant cost transparency (tenant-scoped reports only)
 
 Endpoints:
 - GET  /health — runtime health
@@ -15,7 +17,7 @@ Endpoints:
 - POST /v1/auth/signin — sign in (password / OIDC / magic link)
 - POST /v1/consent/grant — grant consent
 - POST /v1/consent/revoke — revoke consent
-- POST /v1/inference — run inference (sanitized, audited)
+- POST /v1/inference — run inference (sanitized, audited, cost-tracked)
 - GET  /v1/visits/today — PSW's visits for today
 - GET  /v1/visits/:id — visit details
 - POST /v1/visits/clock-in — GPS clock-in
@@ -23,6 +25,13 @@ Endpoints:
 - GET  /v1/family/timeline — family portal (read-only)
 - GET  /audit/events — tenant-scoped audit log
 - GET  /psw/ — static PSW UI (multi-tenant)
+- GET  /v1/affordability/tiers — list affordability tiers (public)
+- GET  /v1/affordability/eligibility — what the current tenant qualifies for
+- POST /v1/inference/tier — resolve which tier + cost for a request
+- GET  /v1/cost/report — per-tenant cost report (tenant-scoped ONLY)
+- POST /v1/generate/{protein,binder,rna,dna} — generative biology (biosecurity-gated)
+- POST /v1/synthesis/order — submit to Twist/IDT/GenScript
+- GET  /v1/biosecurity/audit — biosecurity screening audit log
 """
 from __future__ import annotations
 
@@ -48,6 +57,18 @@ from runtime.consent import ConsentEngine, ConsentDenied
 from runtime.tenants import TenantRegistry
 from runtime.sanitize import sanitize_free_text, sanitize_observation_value
 from runtime.bio_security import BiosecurityScreener, igs_screen_summary
+from runtime.affordability import (
+    ALL_TIERS,
+    DEFAULT_TIER,
+    default_quantization_for,
+    estimate_cost,
+    get_tier,
+    list_tiers,
+    V4_PRO_INPUT_USD_PER_M,
+    V4_PRO_OUTPUT_USD_PER_M,
+)
+from runtime.cost import CostTracker, CostRecord, build_cost_record
+from runtime.efficient import default_compressor, default_router
 
 logger = logging.getLogger("openclinical.runtime")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -216,17 +237,73 @@ class SynthesisOrderResponse(BaseModel):
     audit_event_id: str
 
 
+# -- affordability + cost schemas ------------------------------------------
+
+
+class AffordabilityEligibilityResponse(BaseModel):
+    tenant_id: str
+    tenant_name: str
+    tier: dict[str, Any]
+    estimated_monthly_cost_usd: dict[str, Any]
+
+
+class TierResolutionRequest(BaseModel):
+    """Resolve which tier / model family / quantization a request should use."""
+    model_id: str
+    input_tokens_estimate: int = 1000
+    output_tokens_estimate: int = 500
+    sensitivity: str = "standard"  # standard | high (clinical-decision-class)
+
+
+class TierResolutionResponse(BaseModel):
+    model_id: str
+    tenant_tier_id: str
+    resolved_model_family: str
+    resolved_quantization: str
+    activated_params_b: float
+    estimated_cost_usd: float
+    savings_vs_gpt55_usd: float
+    savings_vs_opus47_usd: float
+    max_context_tokens: int
+
+
+class CostReportResponse(BaseModel):
+    tenant_id: str
+    window: dict[str, Any]
+    inference_count: int
+    totals: dict[str, Any]
+    by_model_family: dict[str, Any]
+    by_quantization: dict[str, Any]
+    recent_records: list[dict[str, Any]]
+
+
+class InferenceResponseWithCost(InferenceResponse):
+    """Inference response augmented with cost transparency fields."""
+    cost: dict[str, Any] = Field(default_factory=dict)
+    tier_id: str = ""
+    model_family: str = ""
+    quantization: str = ""
+
+
 # -- multi-tenant dependency --------------------------------------------------
 
 
 class TenantContext:
     """Resolved tenant + authentication context for a request."""
 
-    def __init__(self, tenant_id: str, psw_id: str, tenant_name: str, encryption_model: str):
+    def __init__(
+        self,
+        tenant_id: str,
+        psw_id: str,
+        tenant_name: str,
+        encryption_model: str,
+        tier: str = "home_care_agency",
+    ):
         self.tenant_id = tenant_id
         self.psw_id = psw_id
         self.tenant_name = tenant_name
         self.encryption_model = encryption_model
+        self.tier = tier
 
 
 async def require_tenant(
@@ -263,6 +340,7 @@ async def require_tenant(
             psw_id=x_psw_id,
             tenant_name=tenant.name,
             encryption_model=tenant.encryption_model,
+            tier=tenant.tier,
         )
 
     # Fall back to persistent tenant API key (hashed lookup)
@@ -275,6 +353,7 @@ async def require_tenant(
         psw_id=x_psw_id,
         tenant_name=tenant.name,
         encryption_model=tenant.encryption_model,
+        tier=tenant.tier,
     )
 
 
@@ -291,6 +370,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.audit = AuditLogger(audit_path=settings.audit_path)
     app.state.consent = ConsentEngine(consent_path=settings.consent_path)
     app.state.biosecurity = BiosecurityScreener()
+    app.state.cost = CostTracker()  # per-tenant cost transparency
     app.state.started_at = time.time()
     app.state.visits = _seed_demo_visits()  # MVP demo data
     app.state.sessions = {}  # token -> session metadata
@@ -302,6 +382,93 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
 
     logger.info("openclinical-ai runtime shutting down")
+
+
+# -- cost / token / model-family helpers ----------------------------------
+
+
+def _estimate_tokens(inputs: dict[str, Any], outputs: dict[str, Any]) -> tuple[int, int]:
+    """Estimate input + output tokens. MVP heuristic: ~4 chars per token.
+
+    For real adapters this is replaced by tokenizer counts (tiktoken, etc.).
+    The estimate is intentionally conservative — over-counting is safer
+    than under-counting for cost reporting.
+    """
+    def count(d: dict[str, Any]) -> int:
+        total = 0
+        for v in d.values():
+            if isinstance(v, str):
+                total += max(1, len(v) // 4)
+            elif isinstance(v, dict):
+                total += count(v)
+            elif isinstance(v, list):
+                for item in v:
+                    if isinstance(item, str):
+                        total += max(1, len(item) // 4)
+                    elif isinstance(item, dict):
+                        total += count(item)
+            elif v is not None:
+                total += max(1, len(str(v)) // 4)
+        return total
+
+    return count(inputs), count(outputs)
+
+
+def _resolve_model_family(model_id: str) -> tuple[str, float]:
+    """Resolve a model_id to its model family + activated params (billions).
+
+    Anchors in DeepSeek V4-Pro / V4-Flash activated-param counts:
+    - V4-Pro:   49B activated out of 1.6T total (3%)
+    - V4-Flash: 13B activated out of 284B total (4.5%)
+    - DSpark:   on-prem, same activated params as V4-Pro
+    - heuristic: 0B (no real inference — pure rule-based)
+    """
+    mid = model_id.lower()
+    if "v4-pro" in mid or "v4pro" in mid:
+        return "v4-pro", 49.0
+    if "v4-flash" in mid or "v4flash" in mid:
+        return "v4-flash", 13.0
+    if "dspark" in mid:
+        return "dspark", 49.0
+    if "psw" in mid or "shift" in mid or "handoff" in mid:
+        return "heuristic", 0.0
+    # Default for unknown model_ids: assume heuristic
+    return "heuristic", 0.0
+
+
+def _estimated_monthly_cost(
+    tier_id: str,
+    inferences_per_day: int,
+    avg_input_tokens: int,
+    avg_output_tokens: int,
+) -> dict[str, Any]:
+    """Estimate monthly cost (30 days) at a given tier.
+
+    Uses the tier's published pricing for V4-Pro / V4-Flash / DSpark.
+    Returns cost + savings vs GPT-5.5 + Opus 4.7 baselines.
+    """
+    tier = get_tier(tier_id)
+    monthly_inferences = inferences_per_day * 30
+    cost = tier.estimate_cost(
+        avg_input_tokens * monthly_inferences,
+        avg_output_tokens * monthly_inferences,
+    )
+    gpt55 = (
+        (avg_input_tokens / 1_000_000) * 10.0 * monthly_inferences
+        + (avg_output_tokens / 1_000_000) * 30.0 * monthly_inferences
+    )
+    opus47 = (
+        (avg_input_tokens / 1_000_000) * 15.0 * monthly_inferences
+        + (avg_output_tokens / 1_000_000) * 75.0 * monthly_inferences
+    )
+    return {
+        "inferences_per_month": monthly_inferences,
+        "estimated_monthly_cost_usd": round(cost, 4),
+        "estimated_monthly_cost_gpt55_usd": round(gpt55, 4),
+        "estimated_monthly_cost_opus47_usd": round(opus47, 4),
+        "monthly_savings_vs_gpt55_usd": round(gpt55 - cost, 4),
+        "monthly_savings_vs_opus47_usd": round(opus47 - cost, 4),
+    }
 
 
 def _seed_demo_visits() -> dict[str, Visit]:
@@ -340,7 +507,7 @@ def _seed_demo_visits() -> dict[str, Visit]:
 app = FastAPI(
     title="openclinical-ai runtime",
     description="Multi-tenant sovereign inference runtime for biology AI and clinical AI",
-    version="0.2.0",
+    version="0.3.0",
     lifespan=lifespan,
 )
 
@@ -471,16 +638,25 @@ async def consent_revoke(req: ConsentRevokeRequest, request: Request) -> dict[st
     return {"status": "revoked", "patient_id": req.patient_id}
 
 
+# -- affordability + cost public endpoints ---------------------------------
+
+
+@app.get("/v1/affordability/tiers")
+async def affordability_tiers() -> dict[str, Any]:
+    """List all affordability tiers — public (no secrets, no tenant auth)."""
+    return {"tiers": list_tiers()}
+
+
 # -- protected endpoints (require tenant auth) -------------------------------
 
 
-@app.post("/v1/inference", response_model=InferenceResponse)
+@app.post("/v1/inference", response_model=InferenceResponseWithCost)
 async def inference(
     req: InferenceRequest,
     request: Request,
     ctx: TenantContext = Depends(require_tenant),
-) -> InferenceResponse:
-    """Run inference on a model — multi-tenant, sanitized, audited."""
+) -> InferenceResponseWithCost:
+    """Run inference on a model — multi-tenant, sanitized, audited, cost-tracked."""
     started = time.time()
     inference_id = str(uuid.uuid4())
 
@@ -581,9 +757,29 @@ async def inference(
         consent_token=req.consent_token,
     )
 
+    # 6. Cost transparency — every inference is cost-tracked + audit-logged
+    cost_tracker: CostTracker = request.app.state.cost
+    input_tokens, output_tokens = _estimate_tokens(inputs, outputs)
+    model_family, activated_params_b = _resolve_model_family(req.model_id)
+    quantization = default_quantization_for(req.model_id, ctx.tier)
+    cost_record = build_cost_record(
+        inference_id=inference_id,
+        tenant_id=ctx.tenant_id,
+        psw_id=ctx.psw_id,
+        model_id=req.model_id,
+        model_family=model_family,
+        tier_id=ctx.tier,
+        quantization=quantization,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        activated_params_b=activated_params_b,
+        audit_event_id=audit_event_id,
+    )
+    cost_tracker.record(cost_record)
+
     latency_ms = int((time.time() - started) * 1000)
 
-    return InferenceResponse(
+    return InferenceResponseWithCost(
         inference_id=inference_id,
         tenant_id=ctx.tenant_id,
         model_id=req.model_id,
@@ -594,7 +790,94 @@ async def inference(
         audit_event_id=audit_event_id,
         timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         latency_ms=latency_ms,
+        cost={
+            "estimated_cost_usd": cost_record.estimated_cost_usd,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "savings_vs_gpt55_usd": cost_record.savings_vs_gpt55_usd,
+            "savings_vs_opus47_usd": cost_record.savings_vs_opus47_usd,
+        },
+        tier_id=ctx.tier,
+        model_family=model_family,
+        quantization=quantization,
     )
+
+
+@app.get("/v1/affordability/eligibility")
+async def affordability_eligibility(
+    request: Request,
+    ctx: TenantContext = Depends(require_tenant),
+) -> dict[str, Any]:
+    """Show what the current tenant qualifies for.
+
+    Estimated monthly cost is shown based on tier defaults (100 inferences/day
+    at avg 1000 in / 500 out tokens). Production: tenant-specific usage stats.
+    """
+    registry: TenantRegistry = request.app.state.tenants
+    tenant = registry.get(ctx.tenant_id)
+    tier = get_tier(ctx.tier)
+    estimated = _estimated_monthly_cost(
+        tier_id=ctx.tier,
+        inferences_per_day=100,
+        avg_input_tokens=1000,
+        avg_output_tokens=500,
+    )
+    return {
+        "tenant_id": ctx.tenant_id,
+        "tenant_name": ctx.tenant_name,
+        "tier": tier.to_dict(),
+        "estimated_monthly_cost_usd": estimated,
+    }
+
+
+@app.post("/v1/inference/tier", response_model=TierResolutionResponse)
+async def inference_tier(
+    req: TierResolutionRequest,
+    request: Request,
+    ctx: TenantContext = Depends(require_tenant),
+) -> TierResolutionResponse:
+    """Resolve which tier + model family + quantization + cost a request should use.
+
+    Useful for clients that want to preview cost before committing to
+    an inference, or for tools that need to choose between V4-Pro / V4-Flash
+    / DSpark dynamically.
+    """
+    tier = get_tier(ctx.tier)
+    model_family, activated_params_b = _resolve_model_family(req.model_id)
+    # Clinical-decision-class sensitivity forces fp16 regardless of tier default
+    if req.sensitivity == "high":
+        quantization = "fp16"
+    else:
+        quantization = default_quantization_for(req.model_id, ctx.tier)
+    cost = estimate_cost(ctx.tier, req.input_tokens_estimate, req.output_tokens_estimate)
+    return TierResolutionResponse(
+        model_id=req.model_id,
+        tenant_tier_id=ctx.tier,
+        resolved_model_family=model_family,
+        resolved_quantization=quantization,
+        activated_params_b=activated_params_b,
+        estimated_cost_usd=cost["tier_cost_usd"],
+        savings_vs_gpt55_usd=cost["savings_vs_gpt55_usd"],
+        savings_vs_opus47_usd=cost["savings_vs_opus47_usd"],
+        max_context_tokens=tier.max_context_tokens,
+    )
+
+
+@app.get("/v1/cost/report", response_model=CostReportResponse)
+async def cost_report(
+    request: Request,
+    since: str | None = None,
+    ctx: TenantContext = Depends(require_tenant),
+) -> CostReportResponse:
+    """Per-tenant cost report — tenant-scoped ONLY.
+
+    No cross-tenant visibility. This is by design: cost transparency
+    is for the patient's affordability, not for tenant-vs-tenant
+    competitive comparison.
+    """
+    cost_tracker: CostTracker = request.app.state.cost
+    report = cost_tracker.tenant_report(ctx.tenant_id, since_timestamp=since)
+    return CostReportResponse(**report)
 
 
 @app.get("/v1/visits/today")
@@ -763,6 +1046,16 @@ async def model_signature_error_handler(request: Request, exc: ModelSignatureErr
 # -- generative biology endpoints (multi-tenant, biosecurity-gated) ----------
 
 
+# Available biology AI generation models (for error messages)
+BIOLOGY_GENERATION_ADAPTERS_REGISTRY = {
+    "rfdiffusion-backbone": "Generative protein backbone design (Baker lab, BSD open source)",
+    "proteinmpnn-inverse-fold": "Inverse folding — sequence from backbone (Baker lab, BSD open source)",
+    "esm3-multimodal": "Multi-modal protein LLM (EvolutionaryScale, Apache 2.0 ESM Cambrian)",
+    "bindcraft-binder-design": "Binder design against target (Baker lab, BSD open source)",
+    "progen-protein-llm": "Control-tag protein LLM (Profluent/Salesforce, Apache 2.0)",
+}
+
+
 @app.post("/v1/generate/protein", response_model=GenerateResponse)
 async def generate_protein(
     req: GenerateRequest,
@@ -903,16 +1196,6 @@ async def _run_generation(
 
 
 # -- synthesis vendor integration -------------------------------------------
-
-
-# Available biology AI generation models (for error messages)
-BIOLOGY_GENERATION_ADAPTERS_REGISTRY = {
-    "rfdiffusion-backbone": "Generative protein backbone design (Baker lab, BSD open source)",
-    "proteinmpnn-inverse-fold": "Inverse folding — sequence from backbone (Baker lab, BSD open source)",
-    "esm3-multimodal": "Multi-modal protein LLM (EvolutionaryScale, Apache 2.0 ESM Cambrian)",
-    "bindcraft-binder-design": "Binder design against target (Baker lab, BSD open source)",
-    "progen-protein-llm": "Control-tag protein LLM (Profluent/Salesforce, Apache 2.0)",
-}
 
 
 @app.post("/v1/synthesis/order", response_model=SynthesisOrderResponse)

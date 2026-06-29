@@ -2,7 +2,8 @@
 
 **Open sovereign deployment substrate for biology AI and clinical AI in Canada. Multi-tenant by design — any healthcare service can connect, each tenant stays isolated. Affordable for everyone.**
 
-Apache 2.0 · [github.com/simpliabarrii-crypto/openclinical-ai](https://github.com/simpliabarrii-crypto/openclinical-ai)
+Apache 2.0 · [github.com/simpliibarrii-crypto/openclinical-ai](https://github.com/simpliibarrii-crypto/openclinical-ai)
+**Runs on macOS, Windows, Linux (Ubuntu/Debian, Fedora/RHEL, Arch, Alpine), iOS, Android — browser + Python 3.11+ anywhere.**
 
 ---
 
@@ -54,6 +55,18 @@ Seven tiers, mapped onto Canadian healthcare institution types:
 - **DeepSeek V4-Pro** — 1.6T params, 49B activated (3% sparsity), hybrid CSA+HCA attention, 27% FLOPs + 10% KV cache vs V3.2
 - **DeepSeek V4-Pro-DSpark** — MIT-licensed on-prem inference framework paired with the open DeepSpec training repo
 - See `runtime/efficient.py` for the substrate-side seams these patterns slot into
+
+### New in v0.4.0
+
+- **Security hardening**: `/audit/events` now requires tenant authentication (was public). Family portal token moved from query param to `X-Family-Token` header. Default consent scope narrowed from `["*"]` to `["visit_documentation"]`. Demo visits gated behind `OPENCLINICAL_ENV != production`.
+- **White + red theme** — clinical crimson `#C8102E` (not Red Cross red). Light/dark mode toggle persisted to `localStorage`.
+- **Distinctive logo** — interlocking OC rings SVG in `psw-assistant/assets/logo.svg`. No crosses, no humanitarian symbols.
+- **French + English i18n** — `locales/en.json` + `locales/fr.json` (126 keys each). Language switcher in Settings, persisted to `localStorage`. Voice dictation language matches active locale. Spanish, Chinese, Arabic buttons in Settings (locales to follow).
+- **Connectors tab** — 18 healthcare/biotech systems listed with honest status badges: `available` / `in-development` / `planned` / `community`. FHIR R4 and synthesis vendors (Twist, IDT, GenScript) are `available` today.
+- **Business portal** — `/v1/business/apply` endpoint + in-app form. Enterprise onboarding in 3 steps for hospitals, home care agencies, LTC homes, and biotech companies.
+- **Minimal button UX** — bottom tab bar (Visits · Connect · Settings) replaces button clusters. One primary action per screen. Voice dictation is the default input path.
+- **Cross-platform** — PWA manifest for installable web app on iOS, Android, and desktop. Docker + Linux native. Runs anywhere with a browser and Python 3.11+.
+- **0 external frontend dependencies** — the entire UI is a single HTML file + CSS + JS. No npm, no bundler, no CDN.
 
 ### New in v0.3.0
 

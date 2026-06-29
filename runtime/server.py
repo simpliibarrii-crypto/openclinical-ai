@@ -45,7 +45,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path as PathLib
 from typing import Any, AsyncIterator
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -68,6 +68,7 @@ from runtime.affordability import (
     V4_PRO_INPUT_USD_PER_M,
     V4_PRO_OUTPUT_USD_PER_M,
 )
+from runtime.careplan import CarePlan, CarePlanRegistry
 from runtime.cost import CostTracker, CostRecord, build_cost_record
 from runtime.efficient import default_compressor, default_router
 
@@ -135,6 +136,8 @@ class SignInRequest(BaseModel):
     tenant_id: str
     psw_id: str
     method: str = "password"  # password | oidc | magic
+    facility_id: str | None = None
+    floor_id: str | None = None
 
 
 class SignInResponse(BaseModel):
@@ -144,6 +147,9 @@ class SignInResponse(BaseModel):
     consent_token: str | None = None
     encryption_model: str
     expires_at: str
+    facility_id: str | None = None
+    floor_id: str | None = None
+    floor_plans: list[dict[str, Any]] = Field(default_factory=list)  # care plan briefs for this floor
 
 
 class Visit(BaseModel):
@@ -372,10 +378,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.consent = ConsentEngine(consent_path=settings.consent_path)
     app.state.biosecurity = BiosecurityScreener()
     app.state.cost = CostTracker()  # per-tenant cost transparency
+    app.state.careplans = CarePlanRegistry(plans_path=settings.careplans_path)
     app.state.started_at = time.time()
-    # Only seed demo visits in dev/test — production has real visit data
-    app.state.visits = _seed_demo_visits() if os.getenv("OPENCLINICAL_ENV", "dev") != "production" else {}
+    # Only seed demo data in dev/test
+    if os.getenv("OPENCLINICAL_ENV", "dev") != "production":
+        app.state.visits = _seed_demo_visits()
+        app.state.careplans.seed_demo_plans()
+    else:
+        app.state.visits = {}
     app.state.sessions = {}  # token -> session metadata
+    # In-memory call bell event queue (floor -> list of pending events)
+    app.state.callbell_queue: dict[str, list[dict[str, Any]]] = {}
 
     # Load any pre-registered models
     loaded = await app.state.registry.load_all()
@@ -599,6 +612,22 @@ async def sign_in(req: SignInRequest, request: Request) -> SignInResponse:
             granted_by=req.psw_id,
         )
 
+    # Load care plans for the assigned floor
+    floor_plans: list[dict[str, Any]] = []
+    if req.facility_id and req.floor_id:
+        careplans: CarePlanRegistry = request.app.state.careplans
+        plans = careplans.get_by_floor(req.tenant_id, req.facility_id, req.floor_id)
+        floor_plans = [p.to_brief() for p in plans]
+        audit_cp: AuditLogger = request.app.state.audit
+        await audit_cp.log(
+            event_type="floor-signin",
+            tenant_id=req.tenant_id,
+            psw_id=req.psw_id,
+            facility_id=req.facility_id,
+            floor_id=req.floor_id,
+            plans_loaded=len(floor_plans),
+        )
+
     return SignInResponse(
         tenant_id=req.tenant_id,
         psw_id=req.psw_id,
@@ -609,6 +638,9 @@ async def sign_in(req: SignInRequest, request: Request) -> SignInResponse:
             "%Y-%m-%dT%H:%M:%SZ",
             time.gmtime(time.time() + 8 * 3600),
         ),
+        facility_id=req.facility_id,
+        floor_id=req.floor_id,
+        floor_plans=floor_plans,
     )
 
 
@@ -1295,7 +1327,226 @@ async def biosecurity_audit(
     return {"tenant_id": ctx.tenant_id, "events": bio_events, "count": len(bio_events)}
 
 
+# -- care plan + call bell endpoints ----------------------------------------
+
+
+@app.get("/v1/careplans/preload")
+async def preload_careplan_context(
+    request: Request,
+    facility_id: str,
+    floor_id: str,
+    ctx: TenantContext = Depends(require_tenant),
+) -> dict[str, Any]:
+    """Return AI-ready context from all care plans on a floor.
+
+    The returned `ai_context` string can be injected directly into the model's
+    system prompt or retrieval context so the AI knows every resident's care
+    plan before processing any visit documentation.
+    """
+    careplans: CarePlanRegistry = request.app.state.careplans
+    plans = careplans.get_by_floor(ctx.tenant_id, facility_id, floor_id)
+    ai_context = "\n\n---\n\n".join(p.to_ai_context() for p in plans)
+    return {
+        "tenant_id": ctx.tenant_id,
+        "facility_id": facility_id,
+        "floor_id": floor_id,
+        "plan_count": len(plans),
+        "ai_context": ai_context,
+        "briefs": [p.to_brief() for p in plans],
+    }
+
+
+@app.get("/v1/careplans/{floor_id}")
+async def get_floor_careplans(
+    floor_id: str,
+    request: Request,
+    facility_id: str,
+    ctx: TenantContext = Depends(require_tenant),
+) -> dict[str, Any]:
+    """Get all care plans for a floor — tenant-scoped, authenticated."""
+    careplans: CarePlanRegistry = request.app.state.careplans
+    plans = careplans.get_by_floor(ctx.tenant_id, facility_id, floor_id)
+    return {
+        "tenant_id": ctx.tenant_id,
+        "facility_id": facility_id,
+        "floor_id": floor_id,
+        "plans": [p.to_dict() for p in plans],
+        "count": len(plans),
+    }
+
+
+@app.post("/v1/callbell/event")
+async def callbell_event(body: dict[str, Any]) -> dict[str, Any]:
+    """Receive a call bell event from a nurse call system.
+
+    This is the integration webhook. Nurse call systems (Rauland Responder,
+    Ascom, etc.) POST here when a call bell is pressed.
+
+    No tenant auth — call bell systems don't authenticate per tenant.
+    """
+    # Use app state from module-level reference
+    careplans = app.state.careplans
+    audit = app.state.audit
+    callbell_queue = app.state.callbell_queue
+
+    ts = body.get("timestamp") or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    event_data = {
+        "room_number": body["room_number"],
+        "floor_id": body["floor_id"],
+        "facility_id": body["facility_id"],
+        "event_type": body.get("event_type", "call_bell"),
+        "timestamp": ts,
+        "metadata": body.get("metadata", {}),
+    }
+
+    # Try to match to a care plan
+    matched_plan: dict[str, Any] | None = None
+    plan_id: str | None = None
+    tenant_id: str | None = None
+
+    # Load all tenants' care plans for the facility/floor
+    for tid in app.state.tenants.tenants:
+        try:
+            plans = careplans.get_by_floor(tid, body["facility_id"], body["floor_id"])
+            for plan in plans:
+                if plan.room_number == body["room_number"]:
+                    matched_plan = plan.to_brief()
+                    plan_id = plan.id
+                    tenant_id = plan.tenant_id
+                    careplans.log_call_bell(tenant_id, plan.facility_id, plan_id, event_data)
+                    break
+            if matched_plan:
+                break
+        except Exception:
+            continue
+
+    # Queue notification for the floor
+    queue_key = f"{body['facility_id']}:{body['floor_id']}"
+    queue = callbell_queue.setdefault(queue_key, [])
+    notification = {
+        **event_data,
+        "plan_id": plan_id,
+        "tenant_id": tenant_id,
+        "matched_plan": matched_plan,
+    }
+    queue.append(notification)
+    if len(queue) > 100:
+        callbell_queue[queue_key] = queue[-100:]
+
+    # Audit
+    await audit.log(
+        event_type="callbell-received",
+        room_number=body["room_number"],
+        floor_id=body["floor_id"],
+        facility_id=body["facility_id"],
+        event_type_detail=body.get("event_type", "call_bell"),
+        matched_plan_id=plan_id,
+        timestamp=ts,
+    )
+
+    return {
+        "status": "received",
+        "event": event_data,
+        "matched_plan": matched_plan,
+        "matched_plan_id": plan_id,
+        "queue_length": len(queue),
+    }
+
+
+@app.post("/v1/callbell/notify")
+async def callbell_notify(
+    body: CallBellNotifyRequest,
+    request: Request,
+    ctx: TenantContext = Depends(require_tenant),
+) -> dict[str, Any]:
+    """Get the latest pending call bell notifications for a floor.
+
+    This is polled by the frontend (or pushed via WebSocket in production).
+    Returns the care plan brief for the resident who pressed the call bell
+    so the PSW sees who's calling + room number + relevant info.
+    """
+    careplans: CarePlanRegistry = request.app.state.careplans
+    plan = careplans.get_one(body.tenant_id, body.facility_id, body.plan_id)
+    if not plan:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Care plan not found")
+
+    # Pull pending events from queue (pop so they're not re-sent)
+    queue_key = f"{body.facility_id}:{body.floor_id}"
+    queue = request.app.state.callbell_queue.get(queue_key, [])
+
+    return {
+        "plan_id": body.plan_id,
+        "brief": plan.to_brief(),
+        "ai_context": plan.to_ai_context(),
+        "pending_events": queue[-5:],  # last 5 events
+        "total_pending": len(queue),
+    }
+
+
+@app.get("/v1/callbell/queue")
+async def callbell_queue(
+    request: Request,
+    facility_id: str,
+    floor_id: str,
+    ctx: TenantContext = Depends(require_tenant),
+) -> dict[str, Any]:
+    """Poll the call bell notification queue for a floor.
+
+    The frontend polls this endpoint to get new call bell alerts.
+    Production: replace with WebSocket push for real-time delivery.
+    """
+    queue_key = f"{facility_id}:{floor_id}"
+    queue = request.app.state.callbell_queue.get(queue_key, [])
+    # Clear after reading — each poll consumes the queue
+    request.app.state.callbell_queue[queue_key] = []
+
+    careplans: CarePlanRegistry = request.app.state.careplans
+    enriched = []
+    for item in queue:
+        if item.get("plan_id") and item.get("tenant_id"):
+            plan = careplans.get_one(item["tenant_id"], facility_id, item["plan_id"])
+            if plan:
+                item["brief"] = plan.to_brief()
+        enriched.append(item)
+
+    return {
+        "facility_id": facility_id,
+        "floor_id": floor_id,
+        "events": enriched,
+        "count": len(enriched),
+    }
+
+
 # -- business portal endpoint -----------------------------------------------
+
+
+class CallBellEvent(BaseModel):
+    room_number: str
+    floor_id: str
+    facility_id: str
+    event_type: str = "call_bell"  # call_bell | bathroom_alert | wander_alert | emergency
+    timestamp: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+CallBellEvent.model_rebuild()
+
+
+class CallBellNotifyRequest(BaseModel):
+    tenant_id: str
+    facility_id: str
+    floor_id: str
+    room_number: str
+    plan_id: str
+    event_type: str = "call_bell"
+
+
+CallBellNotifyRequest.model_rebuild()
+
+
+class FloorPlansRequest(BaseModel):
+    facility_id: str
+    floor_id: str
 
 
 class BusinessApplicationRequest(BaseModel):

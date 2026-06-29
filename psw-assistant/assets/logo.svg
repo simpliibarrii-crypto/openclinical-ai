@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <!-- openclinical-ai logo — v0.4.0
+       Distinctive "OC" interlocking rings mark.
+       Colors: clinical crimson #C8102E + dark #1A1A2E.
+       No crosses, no Red Cross shapes, no humanitarian symbols.
+       The interlocking rings represent AI + healthcare convergence. -->
+  <defs>
+    <linearGradient id="ring-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#C8102E;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#E63946;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <!-- Outer ring (healthcare) -->
+  <circle cx="60" cy="60" r="54" fill="none" stroke="url(#ring-grad)" stroke-width="6" stroke-linecap="round"/>
+  <!-- Inner ring (AI) — offset slightly to create interlocking Venn feel -->
+  <circle cx="50" cy="50" r="30" fill="none" stroke="#1A1A2E" stroke-width="4" stroke-linecap="round"/>
+  <!-- Center dot — the convergence point -->
+  <circle cx="60" cy="60" r="6" fill="#C8102E"/>
+  <!-- Subtle plus mark inside convergence (not a Red Cross —
+       a mathematical plus sign, rotated 45deg, not centered in a white field) -->
+  <line x1="56" y1="52" x2="64" y2="68" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="64" y1="52" x2="56" y2="68" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

@@ -128,3 +128,47 @@ Built by a Personal Support Worker in Ottawa with 10 years of nursing experience
 ## License
 
 Apache 2.0 — open source, benefit everyone.
+
+## Generative biology AI layer (added 2026-06-28)
+
+In addition to clinical AI + biology AI **analysis**, openclinical-ai now includes a **generative biology AI layer** — for designing new proteins, RNA, DNA from scratch.
+
+### The wedge
+
+The Canadian generative biology AI gap is wider than the analysis gap:
+
+- **No Canadian company** ships generative biology AI foundation models.
+- **All major players** are foreign: Generate Biomedicines ($370M+ US), Cradle (EU), Profluent (US), EvolutionaryScale ($142M US, AI21 spinoff), Iambic (US), Isomorphic (UK/Alphabet).
+- **Canadian biotech (AbCellera, Deep Genomics)** does target identification + screening, not generative biology per se.
+- **openclinical-ai** is positioned to be the first open, sovereign Canadian generative biology substrate.
+
+### What we ship
+
+| Component | Purpose |
+|---|---|
+| `runtime/bio_security.py` | Mandatory biosecurity screening on every generated sequence — 5 layers (pathogen signatures, toxin motifs, AI-evasion patterns, length sanity, composition). IGS-compliant. |
+| `biology_ai/generation/adapters.py` | Stubs for RFdiffusion (Baker lab, BSD), ProteinMPNN (Baker lab, BSD), ESM-3 (EvolutionaryScale, Apache 2.0), Bindcraft (Baker lab, BSD), ProGen (Profluent/Salesforce, Apache 2.0). |
+| `/v1/generate/{protein,binder,rna,dna}` | Multi-tenant endpoints for generative biology, biosecurity-gated. |
+| `/v1/synthesis/order` | Push designs to Twist, IDT, GenScript with biosecurity verification attached. |
+| `/v1/biosecurity/audit` | Tenant-scoped biosecurity screening audit log. |
+
+### Why biosecurity at the substrate level
+
+Per [Science 2025](https://www.science.org/doi/10.1126/science.adu8578): "current screening practices at DNA synthesis providers — largely reliant on sequence similarity to known biological threats — are increasingly inadequate" against AI-redesigned protein sequences.
+
+openclinical-ai enforces multi-layer biosecurity screening **at the substrate level**, before generated sequences reach synthesis vendors. Every generated protein/DNA/RNA is screened through 5 layers and blocked if risk_score > 0.7.
+
+### Market best points applied
+
+| Best point from the market | Applied in openclinical-ai |
+|---|---|
+| Foundation models with fine-tuning | Signed manifest registry for ESM Cambrian, ProteinMPNN, RFdiffusion |
+| Multi-modal generation | `inputs.constraints` accepts sequence motifs + structure + function |
+| Wet-lab integration | `/v1/synthesis/order` for Twist, IDT, GenScript |
+| API-first design | REST endpoints for every operation |
+| Mandatory biosecurity screening | Substrate-level, non-optional |
+| Open weights where possible | Prioritize BSD + Apache 2.0 open weights (Baker lab, Profluent, EvolutionaryScale) |
+| Specific modalities | Start with protein (ProteinMPNN), binder (Bindcraft), RNA (future), DNA (stub ESM-3) |
+| Sovereign training + inference | TamIA / Nibi / Trillium integration planned |
+| Provenance + audit for every design | `GenerationOutput.biosecurity` + audit_event_id |
+| Pre-clinical regulatory pathway | Biosecurity audit logs + provenance manifests as foundation |

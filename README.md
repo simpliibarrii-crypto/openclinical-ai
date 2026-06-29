@@ -1,6 +1,6 @@
 # openclinical-ai
 
-**Open sovereign deployment substrate for biology AI and clinical AI in Canada. Multi-tenant by design — any healthcare service can connect, each tenant stays isolated.**
+**Open sovereign deployment substrate for biology AI and clinical AI in Canada. Multi-tenant by design — any healthcare service can connect, each tenant stays isolated. Affordable for everyone.**
 
 Apache 2.0 · [github.com/simpliabarrii-crypto/openclinical-ai](https://github.com/simpliabarrii-crypto/openclinical-ai)
 
@@ -19,7 +19,51 @@ An open-source runtime for deploying clinical AI models (and biology AI models) 
 - **Prompt-injection defense** — PSW free-text notes sanitized for 20+ injection patterns before AI inference. OWASP LLM01:2025 covered.
 - **Voice-first home care UI** — visit documentation demo at `/psw/`. GPS check-in, family-visible notes, multi-visit/day, billing-ready timestamps.
 - **Family portal** — read-only view of family-visible visit notes. No PHI. Separate token from PSW API key.
+- **Affordability tiers** — DeepSeek V4-Pro / V4-Flash pricing model, equity-first resource policy. Cost transparency per tenant. See "Affordability" below.
 - **Single-container deploy** — Docker, docker-compose, K8s-ready.
+
+---
+
+## Affordability — affordable for everyone (v0.3.0)
+
+The substrate is designed so the same clinical-quality inference is reachable by a rural critical-access hospital, a 200-bed LTC home, a regional hospital, and an academic medical center — without the substrate penalizing smaller institutions.
+
+Seven tiers, mapped onto Canadian healthcare institution types:
+
+| Tier | Default model | Default quantization | Max context | Example institutions |
+|------|---------------|---------------------|-------------|----------------------|
+| `critical_access_rural` | V4-Flash / DSpark | fp8 | 32K | WAHA, remote nursing stations |
+| `ltc_home` | V4-Flash | fp8 | 32K | Garry J Armstrong, Perley Health, Revera |
+| `home_care_agency` | V4-Flash | fp8 | 16K | Bayshore, Carefor, VHA, SE Health, ParaMed |
+| `regional_hospital` | V4-Pro | fp16 | 128K | The Ottawa Hospital, CHEO, regional authorities |
+| `academic_medical_center` | V4-Pro | fp16 | 1M | UHN, Sunnybrook, Mount Sinai, VGH |
+| `biotech_research` | V4-Pro | fp16 | 1M | Mila, Vector, NRC, AbCellera |
+| `biotech_sovereign` | DSpark on-prem | fp16 | hardware-bounded | Air-gapped sovereign deployments |
+
+**Pricing model** (anchored in published DeepSeek rates as of 2026-05-22):
+- **V4-Pro**: $0.435/M input + $0.87/M output tokens
+- **V4-Flash**: $0.10/M input + $0.30/M output tokens (estimate)
+- **DSpark on-prem**: $0 marginal API cost after initial setup
+- **Closed-source baselines** (for savings reporting): GPT-5.5 ~$10/$30, Opus 4.7 ~$15/$75
+
+**Per-tenant cost transparency**: every inference is cost-tracked and reported back to the requesting tenant via `/v1/cost/report`. Reports are tenant-scoped — no cross-tenant visibility. Affordability is for the patient, not for tenant-vs-tenant comparison.
+
+**Equity-first invariant**: every tier has full feature parity. Smaller institutions get tighter resource ceilings (max context, rate limits) — never denied capabilities. Clinical-decision-class models (drug interaction, variant impact, adverse event detection, fall risk) always default to fp16 regardless of tier — regulator-facing determinism isn't a tier policy.
+
+**Reference architectures mirrored:**
+- **DeepSeek V4-Pro** — 1.6T params, 49B activated (3% sparsity), hybrid CSA+HCA attention, 27% FLOPs + 10% KV cache vs V3.2
+- **DeepSeek V4-Pro-DSpark** — MIT-licensed on-prem inference framework paired with the open DeepSpec training repo
+- See `runtime/efficient.py` for the substrate-side seams these patterns slot into
+
+### New in v0.3.0
+
+- `runtime/affordability.py` — tier definitions, per-model quantization policy, FLOPs + cost estimators
+- `runtime/cost.py` — per-tenant cost tracker (tenant-scoped reports only)
+- `runtime/efficient.py` — MoE expert router + hybrid attention compressor (interface only)
+- `GET /v1/affordability/tiers` — public list of all tiers
+- `GET /v1/affordability/eligibility` — what the current tenant qualifies for
+- `POST /v1/inference/tier` — preview cost before committing to an inference
+- `GET /v1/cost/report` — per-tenant cost report (since optional)
 
 ## Multi-tenant architecture
 
@@ -93,19 +137,21 @@ bash tools/smoke_test.sh
 ```
 
 Verifies:
-- `/health` returns version 0.2.0
-- `/v1/tenants` returns 3 demo tenants
-- Sign-in works for both `bayshore-ottawa` and `carefor-ottawa`
-- Tenant A cannot see Tenant B's visits (isolation verified)
+- `/health` returns version 0.3.0
+- `/v1/tenants` returns 5 demo tenants (across all affordability tiers)
+- Sign-in works for all 5 tenants
+- Tenant A cannot see Tenant B's visits or cost reports (isolation verified)
 - Prompt-injection attempts are redacted + logged as `prompt-injection-blocked`
 - GPS visit clock-in works with audit trail
+- Cost tracking per inference + per-tenant report works
+- Affordability tier eligibility + cost preview works
 
-## What's in the box (MVP v0.2.0)
+## What's in the box (MVP v0.3.0)
 
 | Component | Path | Status |
 |-----------|------|--------|
 | **Inference runtime** | `runtime/server.py` | ✅ working |
-| **Multi-tenant registry** | `runtime/tenants.py` | ✅ 3 demo tenants |
+| **Multi-tenant registry** | `runtime/tenants.py` | ✅ 5 demo tenants (all tiers) |
 | **Signed model registry** | `registry/`, `runtime/models.py` | ✅ Ed25519 verified |
 | **Audit gateway** | `runtime/audit.py` | ✅ tenant-scoped |
 | **Consent engine** | `runtime/consent.py` | ✅ PHIPA-aligned |
@@ -114,15 +160,21 @@ Verifies:
 | **Family portal** | `psw-assistant/` (family route) | ✅ read-only |
 | **Visit lifecycle** | `runtime/server.py:/v1/visits/*` | ✅ clock-in/out + GPS |
 | **PSW shift-handoff adapter** | `runtime/models.py:PSWShiftHandoffAdapter` | ✅ heuristic MVP |
+| **Affordability tiers** | `runtime/affordability.py` | ✅ 7 tiers, equity-first |
+| **Cost transparency** | `runtime/cost.py` | ✅ tenant-scoped reports |
+| **Efficient inference seams** | `runtime/efficient.py` | ✅ MoE router + CSA/HCA compressor (interface) |
+| **Generative biology + biosecurity** | `biology_ai/`, `runtime/bio_security.py` | ✅ 5-layer screening |
 | **Smoke test** | `tools/smoke_test.sh` | ✅ all endpoints |
-| **Tests** | `tests/test_substrate.py` | ✅ 20/20 pass |
+| **Tests** | `tests/test_substrate.py`, `test_affordability.py`, `test_efficient.py` | ✅ 57/57 pass |
 | **Dockerfile** | `Dockerfile` | ✅ single container |
 | **docker-compose** | `docker-compose.yml` | ✅ persistence |
 | **Threat model** | `docs/THREAT-MODEL.md` | ✅ STRIDE + multi-tenant |
 | **Security policy** | `SECURITY.md` | ✅ multi-tenant scope |
 | Model card schema | `registry/MODEL-CARD.md` | ⏳ draft |
 | FHIR Consent integration | `fhir/` | ⏳ scaffolded |
-| Biology AI adapters | `biology-ai/` | ⏳ scaffolded |
+| DSpark integration | (planned) | ⏳ interface defined, server not integrated |
+| Real MoE expert routing | (planned) | ⏳ seams in place, real routing is v2 |
+| FP8 quantized runtime | (planned) | ⏳ policy hook is v1, runtime is v2 |
 | K8s manifests | `deploy/` | ⏳ scaffolded |
 | Compliance pack | `compliance/` | ⏳ scaffolded |
 
@@ -134,14 +186,21 @@ Verifies:
 | `GET /models` | none | List loaded models (no secrets) |
 | `GET /v1/tenants` | none | List tenants (no secrets) |
 | `POST /v1/auth/signin` | none | Sign in PSW into tenant, get session token |
-| `POST /v1/consent/grant` | none | Grant consent |
-| `POST /v1/consent/revoke` | none | Revoke consent |
-| `POST /v1/inference` | tenant | Run inference (sanitized, audited) |
+| `POST /v1/consent/grant` | tenant | Grant consent |
+| `POST /v1/consent/revoke` | tenant | Revoke consent |
+| `POST /v1/inference` | tenant | Run inference (sanitized, audited, cost-tracked) |
 | `GET /v1/visits/today` | tenant | PSW's visits for today |
 | `GET /v1/visits/:id` | tenant | Visit details |
 | `POST /v1/visits/clock-in` | tenant | GPS clock-in for visit |
 | `POST /v1/visits/clock-out` | tenant | Finalize visit |
 | `GET /v1/family/timeline` | family token | Family portal (read-only) |
+| `GET /v1/affordability/tiers` | none | List all affordability tiers |
+| `GET /v1/affordability/eligibility` | tenant | What the current tenant qualifies for |
+| `POST /v1/inference/tier` | tenant | Preview tier + cost for a request |
+| `GET /v1/cost/report` | tenant | Per-tenant cost report (tenant-scoped ONLY) |
+| `POST /v1/generate/{protein,binder,rna,dna}` | tenant | Generative biology (biosecurity-gated) |
+| `POST /v1/synthesis/order` | tenant | Submit to Twist/IDT/GenScript |
+| `GET /v1/biosecurity/audit` | tenant | Biosecurity screening audit log |
 | `GET /audit/events` | tenant | Tenant-scoped audit log |
 | `GET /psw/` | none | PSW UI |
 

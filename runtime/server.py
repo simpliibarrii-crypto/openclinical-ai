@@ -372,7 +372,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.biosecurity = BiosecurityScreener()
     app.state.cost = CostTracker()  # per-tenant cost transparency
     app.state.started_at = time.time()
-    app.state.visits = _seed_demo_visits()  # MVP demo data
+    # Only seed demo visits in dev/test — production has real visit data
+    app.state.visits = _seed_demo_visits() if os.getenv("OPENCLINICAL_ENV", "dev") != "production" else {}
     app.state.sessions = {}  # token -> session metadata
 
     # Load any pre-registered models
@@ -507,7 +508,7 @@ def _seed_demo_visits() -> dict[str, Visit]:
 app = FastAPI(
     title="openclinical-ai runtime",
     description="Multi-tenant sovereign inference runtime for biology AI and clinical AI",
-    version="0.3.0",
+    version="0.4.0",
     lifespan=lifespan,
 )
 
@@ -593,7 +594,7 @@ async def sign_in(req: SignInRequest, request: Request) -> SignInResponse:
     if req.method in ("password", "oidc"):
         consent_token = await request.app.state.consent.grant_consent(
             patient_id=f"default-{req.psw_id}",
-            scope=["*"],
+            scope=["visit_documentation"],
             granted_by=req.psw_id,
         )
 
@@ -996,15 +997,21 @@ async def visit_clock_out(
 @app.get("/v1/family/timeline", response_model=FamilyTimelineResponse)
 async def family_timeline(
     request: Request,
-    token: str,
+    token: str | None = None,
     client_id: str | None = None,
+    x_family_token: str | None = Header(None, alias="X-Family-Token"),
 ) -> FamilyTimelineResponse:
     """Family portal — read-only view of family-visible notes.
 
-    Uses a separate family-portal token (not the PSW API key).
+    Uses a separate family-portal token (not the PSW API key). Token accepted
+    via X-Family-Token header (preferred — avoids tokens in URLs/logs) or
+    ?token= query param (backward compat).
     MVP: returns a placeholder.
     Production: validates family token, returns only family-visible fields.
     """
+    # Prefer header over query param — tokens in URLs land in logs + referrers
+    effective_token = x_family_token or token or ""
+    _ = effective_token  # MVP: unused; production validation target
     return FamilyTimelineResponse(
         client_name="your loved one",
         visits=[],
@@ -1018,8 +1025,18 @@ async def list_audit_events(
     patient_id: str | None = None,
     model_id: str | None = None,
     limit: int = 100,
+    ctx: TenantContext = Depends(require_tenant),
 ) -> dict[str, Any]:
-    """List audit events — tenant-scoped."""
+    """List audit events — tenant-scoped, authenticated.
+
+    Only returns events for the authenticated tenant. Any attempt to query
+    another tenant's audit log returns 403.
+    """
+    if tenant_id != ctx.tenant_id:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Cannot query audit events for another tenant",
+        )
     audit: AuditLogger = request.app.state.audit
     events = await audit.query(
         tenant_id=tenant_id,
@@ -1275,6 +1292,51 @@ async def biosecurity_audit(
     # Filter to biosecurity events
     bio_events = [e for e in events if e.get("event_type", "").startswith(("biosecurity", "generation"))]
     return {"tenant_id": ctx.tenant_id, "events": bio_events, "count": len(bio_events)}
+
+
+# -- business portal endpoint -----------------------------------------------
+
+
+class BusinessApplicationRequest(BaseModel):
+    org_name: str
+    contact_email: str
+    org_type: str = "home_care_agency"
+    estimated_volume: str = "low"
+
+
+class BusinessApplicationResponse(BaseModel):
+    application_id: str
+    status: str
+    message: str
+
+
+@app.post("/v1/business/apply", response_model=BusinessApplicationResponse)
+async def business_apply(req: BusinessApplicationRequest, request: Request) -> BusinessApplicationResponse:
+    """Business portal — enterprise onboarding form.
+
+    Accepts onboarding applications from healthcare agencies, hospitals,
+    and biotech companies. MVP: logs the application + returns a reference ID.
+    Production: creates tenant provisioning ticket, sends confirmation email.
+    """
+    app_id = f"APP-{uuid.uuid4().hex[:12]}"
+    try:
+        audit: AuditLogger = request.app.state.audit
+        await audit.log(
+            event_type="business-application",
+            application_id=app_id,
+            org_name=req.org_name,
+            contact_email=req.contact_email,
+            org_type=req.org_type,
+            estimated_volume=req.estimated_volume,
+        )
+    except Exception:
+        pass  # TestClient mode has no lifespan — log only
+    logger.info("business application %s from %s (%s)", app_id, req.org_name, req.contact_email)
+    return BusinessApplicationResponse(
+        application_id=app_id,
+        status="received",
+        message=f"Application received. Reference: {app_id}. We'll be in touch within 24 hours.",
+    )
 
 
 # -- static UI ---------------------------------------------------------------

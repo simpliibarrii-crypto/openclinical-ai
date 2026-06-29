@@ -35,6 +35,7 @@ Endpoints:
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import secrets
@@ -1337,6 +1338,31 @@ async def business_apply(req: BusinessApplicationRequest, request: Request) -> B
         status="received",
         message=f"Application received. Reference: {app_id}. We'll be in touch within 24 hours.",
     )
+
+
+# -- biology news endpoint --------------------------------------------------
+
+BIO_NEWS_PATH = PathLib(__file__).resolve().parents[1] / "psw-assistant" / "biology_news.json"
+
+
+@app.get("/v1/bio-news")
+async def bio_news(refresh: bool = False) -> dict[str, Any]:
+    """Biology and biotech news — curated global feed.
+
+    Serves the curated news JSON. No auth required — public endpoint.
+    Production: swap to live RSS/API aggregation with cache.
+    """
+    try:
+        data = json.loads(BIO_NEWS_PATH.read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {
+            "updated": "never",
+            "top_stories": [],
+            "companies_to_watch": [],
+            "what_to_look_forward_to": [],
+            "categories": {},
+        }
+    return data
 
 
 # -- static UI ---------------------------------------------------------------

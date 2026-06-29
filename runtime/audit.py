@@ -50,11 +50,16 @@ class AuditLogger:
 
     async def query(
         self,
+        tenant_id: str | None = None,
         patient_id: str | None = None,
         model_id: str | None = None,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
-        """Query audit events with optional filters."""
+        """Query audit events with optional filters.
+
+        tenant_id filter is mandatory for production — without it, callers
+        see events from all tenants which would be a multi-tenant breach.
+        """
         events = []
         if not self.log_file.exists():
             return events
@@ -65,6 +70,8 @@ class AuditLogger:
                 if not line:
                     continue
                 event = json.loads(line)
+                if tenant_id and event.get("tenant_id") != tenant_id:
+                    continue
                 if patient_id and event.get("patient_id") != patient_id:
                     continue
                 if model_id and event.get("model_id") != model_id:

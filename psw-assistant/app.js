@@ -1,6 +1,7 @@
-// openclinical-ai — v0.4.0
+// openclinical-ai — v0.5.0
 // Multi-tenant. Voice-first. Browser-only. No build step.
 // White+red theme, light/dark mode, EN/FR i18n, connector registry, business portal.
+// Call bell integration: push notifications + care plan preload per floor.
 // Threat model: all free-text inputs sanitized for prompt-injection before AI.
 // All protected endpoints require X-Tenant-ID + X-Tenant-API-Key + X-PSW-ID.
 
@@ -97,6 +98,8 @@ const state = {
   runtimeUrl: 'http://localhost:8088',
   tenantId: '', tenantName: '', encryptionModel: '',
   pswId: '', authToken: '', consentToken: '',
+  facilityId: '', floorId: '', floorPlans: [],  // v0.5.0 — care plan preload
+  callbellPolling: null, serviceWorker: null,     // v0.5.0 — push notifications
   recognition: null, recognizing: false,
   currentVisit: null, visitClockIn: null,
 };
@@ -111,6 +114,7 @@ const dom = {
   pswId: $('psw-id'),
   authMethod: $('auth-method'),
   runtimeUrl: $('runtime-url'),
+  facilityId: $('facility-id'), floorId: $('floor-id'),  // v0.5.0
   signinBtn: $('signin-btn'),
   setupMessage: $('setup-message'),
   setupCard: $('setup-card'), todayCard: $('today-card'),
@@ -219,19 +223,30 @@ async function signIn() {
   state.encryptionModel = opt.dataset.encryption;
   state.pswId = dom.pswId.value.trim();
   state.runtimeUrl = dom.runtimeUrl.value.trim().replace(/\/$/, '') || 'http://localhost:8088';
+  state.facilityId = dom.facilityId.value.trim();
+  state.floorId = dom.floorId.value;
 
   if (!state.pswId) { showMsg(dom.setupMessage, I18N.t('error.signin_failed'), 'error'); return; }
   if (!(await checkServer())) { showMsg(dom.setupMessage, I18N.t('setup.unreachable'), 'error'); return; }
 
   try {
-    const auth = await apiPost('/v1/auth/signin', {
-      tenant_id: state.tenantId, psw_id: state.pswId, method: dom.authMethod.value,
-    });
+    const body = { tenant_id: state.tenantId, psw_id: state.pswId, method: dom.authMethod.value };
+    if (state.facilityId) body.facility_id = state.facilityId;
+    if (state.floorId) body.floor_id = state.floorId;
+
+    const auth = await apiPost('/v1/auth/signin', body);
     state.authToken = auth.token;
     state.consentToken = auth.consent_token || '';
+    state.facilityId = auth.facility_id || state.facilityId;
+    state.floorId = auth.floor_id || state.floorId;
+    state.floorPlans = auth.floor_plans || [];
     persistSession();
     hide(dom.setupCard); show(dom.todayCard); show(dom.auditCard);
-    dom.pswLabel.textContent = state.pswId;
+    dom.pswLabel.textContent = `${state.pswId}${state.floorId ? ' · Floor ' + state.floorId : ''}`;
+    if (state.floorPlans.length > 0) {
+      renderFloorPlans();
+      startCallbellPolling();
+    }
     await loadVisits();
     await loadAudit();
   } catch (e) {
@@ -245,6 +260,7 @@ function persistSession() {
       runtimeUrl: state.runtimeUrl, tenantId: state.tenantId, tenantName: state.tenantName,
       encryptionModel: state.encryptionModel, pswId: state.pswId,
       authToken: state.authToken, consentToken: state.consentToken,
+      facilityId: state.facilityId, floorId: state.floorId, floorPlans: state.floorPlans,
     }));
   } catch (e) {}
 }
@@ -258,6 +274,9 @@ function restoreSession() {
     Object.assign(state, sess);
     dom.runtimeUrl.value = sess.runtimeUrl;
     dom.pswId.value = sess.pswId;
+    if (sess.facilityId) dom.facilityId.value = sess.facilityId;
+    if (sess.floorId) dom.floorId.value = sess.floorId;
+    if (sess.floorPlans) state.floorPlans = sess.floorPlans;
     return true;
   } catch (e) { return false; }
 }
@@ -611,6 +630,150 @@ function renderBioNews(data) {
   }
 }
 
+// -- care plan display + call bell (v0.5.0) -----------------------------------
+
+function renderFloorPlans() {
+  // Show a summary of care plans loaded for this floor
+  const summary = document.createElement('div');
+  summary.className = 'summary-box floor-plans-summary';
+  summary.id = 'floor-plans-summary';
+  const highRisk = state.floorPlans.filter(p => p.fall_risk === 'high').length;
+  const dnrs = state.floorPlans.filter(p => p.dnr_status).length;
+  summary.innerHTML = [
+    `${I18N.t('today.plans_loaded')}: ${state.floorPlans.length} ${I18N.t('today.residents')}`,
+    highRisk > 0 ? `${highRisk} ${I18N.t('today.high_fall_risk')}` : '',
+    dnrs > 0 ? `${dnrs} DNR` : '',
+  ].filter(Boolean).join(' · ');
+  const setupCard = $('setup-card');
+  if (setupCard && setupCard.parentNode) {
+    setupCard.parentNode.insertBefore(summary, $('today-card'));
+  }
+
+  // Render care plan cards for quick reference
+  const planCards = state.floorPlans.map(p => `
+    <div class="careplan-minicard" data-plan-id="${h(p.id)}" data-room="${h(p.room_number)}">
+      <div class="careplan-minicard-header">
+        <strong>${h(p.resident_name)}</strong>
+        <span class="badge room">Room ${h(p.room_number)}</span>
+      </div>
+      <div class="careplan-minicard-body">
+        <span class="careplan-tag fall-${p.fall_risk}">${I18N.t('careplan.fall_risk')}: ${h(p.fall_risk)}</span>
+        ${p.conditions.slice(0, 2).map(c => `<span class="careplan-tag">${h(c)}</span>`).join('')}
+        ${p.behavioral_flags.length > 0 ? `<span class="careplan-tag flag">⚠ ${h(p.behavioral_flags[0])}</span>` : ''}
+      </div>
+      <div class="careplan-minicard-footer">
+        ${p.mobility ? `<span>🚶 ${h(p.mobility)}</span>` : ''}
+        ${p.communication ? `<span>💬 ${h(p.communication)}</span>` : ''}
+      </div>
+    </div>
+  `).join('');
+
+  const planEl = document.createElement('div');
+  planEl.id = 'floor-plans-grid';
+  planEl.className = 'careplan-grid';
+  planEl.innerHTML = planCards;
+  const todayCard = $('today-card');
+  if (todayCard && todayCard.parentNode) {
+    todayCard.parentNode.insertBefore(planEl, todayCard);
+  }
+}
+
+async function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) { console.log('[sw] not supported'); return; }
+  try {
+    const registration = await navigator.serviceWorker.register('/psw/sw.js', { scope: '/psw/' });
+    state.serviceWorker = registration;
+    console.log('[sw] registered, scope:', registration.scope);
+
+    // Request notification permission
+    if ('Notification' in window && Notification.permission === 'default') {
+      const perm = await Notification.requestPermission();
+      console.log('[sw] notification permission:', perm);
+    }
+
+    // Send notification subscription to server (if push is configured)
+    if (registration.pushManager) {
+      try {
+        const sub = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: null, // MVP: use polling; push keys configured later
+        });
+        console.log('[sw] push subscribed');
+      } catch (e) {
+        console.log('[sw] push subscription skipped (no VAPID key configured):', e.message);
+      }
+    }
+  } catch (e) {
+    console.warn('[sw] registration failed:', e.message);
+  }
+}
+
+function startCallbellPolling() {
+  if (!state.facilityId || !state.floorId) return;
+  if (state.callbellPolling) clearInterval(state.callbellPolling);
+
+  // Poll every 5 seconds for call bell events
+  state.callbellPolling = setInterval(async () => {
+    try {
+      const res = await apiGet(`/v1/callbell/queue?facility_id=${encodeURIComponent(state.facilityId)}&floor_id=${encodeURIComponent(state.floorId)}`);
+      const events = res.events || [];
+      for (const event of events) {
+        showCallbellNotification(event);
+      }
+    } catch (e) {
+      // Silently skip — server may be restarting
+    }
+  }, 5000);
+}
+
+function showCallbellNotification(event) {
+  const brief = event.brief || event.matched_plan || {};
+  const residentName = brief.resident_name || event.matched_plan?.resident_name || 'Unknown resident';
+  const room = brief.room_number || event.room_number || '?';
+  const eventLabel = { call_bell: 'Call Bell', bathroom_alert: 'Bathroom', wander_alert: 'Wander', emergency: 'EMERGENCY' }[event.event_type] || event.event_type;
+
+  const card = $('callbell-notification');
+  const msg = $('callbell-msg');
+  const detail = $('callbell-detail');
+
+  msg.textContent = `🔔 ${eventLabel} — ${residentName} (Room ${room})`;
+  const details = [];
+  if (brief.conditions && brief.conditions.length > 0) details.push(brief.conditions.slice(0, 2).join(', '));
+  if (brief.mobility) details.push(brief.mobility);
+  if (brief.fall_risk === 'high') details.push('⚠ High fall risk');
+  if (brief.behavioral_flags && brief.behavioral_flags.length > 0) details.push(`Flag: ${brief.behavioral_flags[0]}`);
+  if (brief.communication) details.push(brief.communication);
+  detail.textContent = details.join(' · ');
+
+  card.classList.remove('hidden');
+  card.classList.add('callbell-active');
+
+  // Vibrate if supported
+  if (navigator.vibrate) {
+    navigator.vibrate([200, 100, 200, 100, 400]);
+  }
+
+  // Show browser notification if permission granted
+  if ('Notification' in window && Notification.permission === 'granted' && state.serviceWorker) {
+    state.serviceWorker.showNotification(`${eventLabel}: ${residentName}`, {
+      body: `Room ${room} · ${brief.conditions ? brief.conditions.slice(0, 1).join(', ') : ''}`,
+      icon: '/psw/icon-192.png',
+      badge: '/psw/icon-72.png',
+      tag: `callbell-${room}`,
+      requireInteraction: true,
+      vibrate: [200, 100, 200, 100, 400],
+      data: { url: `/psw/`, room: room, resident_name: residentName, event_type: event.event_type },
+    });
+  }
+}
+
+// Dismiss call bell notification
+function dismissCallbell() {
+  const card = $('callbell-notification');
+  card.classList.add('hidden');
+  card.classList.remove('callbell-active');
+}
+
 // -- wiring -----------------------------------------------------------------
 
 async function init() {
@@ -655,6 +818,10 @@ async function init() {
   dom.voiceBtn.addEventListener('click', () => { if (state.recognizing) stopVoice(); else startVoice(); });
   document.getElementById('settings-signout').addEventListener('click', signOut);
   document.getElementById('biz-submit').addEventListener('click', submitBusinessApp);
+  document.getElementById('callbell-dismiss').addEventListener('click', dismissCallbell);
+
+  // Register service worker for push notifications (v0.5.0)
+  registerServiceWorker();
 
   // Periodic health check
   setInterval(checkServer, 5000);

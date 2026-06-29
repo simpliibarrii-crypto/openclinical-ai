@@ -1,120 +1,71 @@
-// openclinical-ai — Home Care Visit Assistant
+// openclinical-ai — v0.4.0
 // Multi-tenant. Voice-first. Browser-only. No build step.
-//
-// Threat model:
-// - All free-text inputs are sanitized for prompt-injection before being sent to AI
-// - All API calls include the tenant ID + per-tenant API key
-// - Family portal shows only family-visible notes (no PHI, no clinical detail)
-// - Visit audit log captures GPS coordinates + timestamps (PHI, encrypted with tenant key)
+// White+red theme, light/dark mode, EN/FR i18n, connector registry, business portal.
+// Threat model: all free-text inputs sanitized for prompt-injection before AI.
+// All protected endpoints require X-Tenant-ID + X-Tenant-API-Key + X-PSW-ID.
 
-const state = {
-  runtimeUrl: 'http://localhost:8088',
-  tenantId: '',
-  tenantName: '',
-  encryptionModel: '',
-  pswId: '',
-  authToken: '',
-  consentToken: '',
-  recognition: null,
-  recognizing: false,
-  currentVisit: null,
-  visitClockIn: null,
+'use strict';
+
+// -- i18n engine ------------------------------------------------------------
+
+const I18N = {
+  locale: 'en',
+  strings: {},
+  loaded: {},
+
+  async load(loc) {
+    if (this.loaded[loc]) return;
+    try {
+      const res = await fetch(`locales/${loc}.json`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      this.strings = await res.json();
+      this.locale = loc;
+      this.loaded[loc] = true;
+    } catch (e) {
+      console.warn(`Failed to load locale ${loc}:`, e.message);
+    }
+  },
+
+  t(key) {
+    return this.strings[key] || key;
+  },
+
+  applyToDOM() {
+    for (const el of document.querySelectorAll('[data-i18n]')) {
+      const key = el.dataset.i18n;
+      el.textContent = this.t(key);
+    }
+    for (const el of document.querySelectorAll('[data-i18n-placeholder]')) {
+      el.placeholder = this.t(el.dataset.i18nPlaceholder);
+    }
+    // Update settings language buttons
+    for (const btn of document.querySelectorAll('[data-lang-choice]')) {
+      btn.classList.toggle('active', btn.dataset.langChoice === this.locale);
+    }
+    document.documentElement.lang = this.locale;
+  }
 };
 
-// -- DOM refs ---------------------------------------------------------------
+// -- theme engine -----------------------------------------------------------
 
-const els = {
-  serverStatus: document.getElementById('server-status'),
-  serverStatusText: document.getElementById('server-status-text'),
-  tenantBadge: document.getElementById('tenant-badge'),
-
-  // Setup
-  tenantSelect: document.getElementById('tenant-select'),
-  encryptionIcon: document.getElementById('encryption-icon'),
-  encryptionText: document.getElementById('encryption-text'),
-  pswId: document.getElementById('psw-id'),
-  authMethod: document.getElementById('auth-method'),
-  runtimeUrl: document.getElementById('runtime-url'),
-  signinBtn: document.getElementById('signin-btn'),
-  familyPortalBtn: document.getElementById('family-portal-btn'),
-  setupMessage: document.getElementById('setup-message'),
-
-  // Sections
-  setupCard: document.getElementById('setup-card'),
-  todayCard: document.getElementById('today-card'),
-  visitCard: document.getElementById('visit-card'),
-  resultCard: document.getElementById('result-card'),
-  auditCard: document.getElementById('audit-card'),
-  familyCard: document.getElementById('family-card'),
-
-  // Today
-  pswLabel: document.getElementById('psw-label'),
-  visitList: document.getElementById('visit-list'),
-  refreshVisitsBtn: document.getElementById('refresh-visits-btn'),
-  signoutBtn: document.getElementById('signout-btn'),
-
-  // Visit
-  visitClientLabel: document.getElementById('visit-client-label'),
-  visitClockTime: document.getElementById('visit-clock-time'),
-  visitStatusBadge: document.getElementById('visit-status-badge'),
-  visitAddress: document.getElementById('visit-address'),
-  visitGps: document.getElementById('visit-gps'),
-
-  bp: document.getElementById('bp'),
-  hr: document.getElementById('hr'),
-  temp: document.getElementById('temp'),
-  spo2: document.getElementById('spo2'),
-  pain: document.getElementById('pain'),
-  meal: document.getElementById('meal'),
-  ambulation: document.getElementById('ambulation'),
-  mood: document.getElementById('mood'),
-  notes: document.getElementById('notes'),
-  familyVisible: document.getElementById('family-visible'),
-
-  voiceBtn: document.getElementById('voice-btn'),
-  voiceBtnText: document.getElementById('voice-btn-text'),
-  voiceStatus: document.getElementById('voice-status'),
-
-  generateSummaryBtn: document.getElementById('generate-summary-btn'),
-  clockOutBtn: document.getElementById('clock-out-btn'),
-  cancelVisitBtn: document.getElementById('cancel-visit-btn'),
-  visitMessage: document.getElementById('visit-message'),
-
-  // Result
-  resultClientLabel: document.getElementById('result-client-label'),
-  resultContent: document.getElementById('result-content'),
-  nextVisitBtn: document.getElementById('next-visit-btn'),
-  backToTodayBtn: document.getElementById('back-to-today-btn'),
-
-  // Audit
-  auditContent: document.getElementById('audit-content'),
-  refreshAuditBtn: document.getElementById('refresh-audit-btn'),
-
-  // Family portal
-  familyClientLabel: document.getElementById('family-client-label'),
-  familyContent: document.getElementById('family-content'),
-  familyBackBtn: document.getElementById('family-back-btn'),
-};
-
-// -- utilities ---------------------------------------------------------------
-
-function show(el) { el.classList.remove('hidden'); }
-function hide(el) { el.classList.add('hidden'); }
-
-function showMessage(el, text, kind) {
-  el.textContent = text;
-  el.className = `message ${kind || 'info'}`;
-  show(el);
-  if (kind === 'success') setTimeout(() => hide(el), 4000);
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  const btn = document.getElementById('theme-toggle');
+  if (btn) btn.textContent = theme === 'dark' ? '☾' : '☀';
+  // Update settings theme buttons
+  for (const b of document.querySelectorAll('[data-theme-choice]')) {
+    b.classList.toggle('active', b.dataset.themeChoice === theme);
+  }
 }
 
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-  })[c]);
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme');
+  const next = current === 'dark' ? 'light' : 'dark';
+  applyTheme(next);
+  try { localStorage.setItem('openclinical.theme', next); } catch (e) {}
 }
 
-// -- prompt-injection sanitization (defense-in-depth) -----------------------
+// -- prompt-injection sanitization ------------------------------------------
 
 const INJECTION_PATTERNS = [
   /ignore (prior|previous|all) instructions?/i,
@@ -131,19 +82,67 @@ const INJECTION_PATTERNS = [
 ];
 
 function sanitize(text) {
-  if (!text) return '';
+  if (!text) return { text: '', flagged: false };
   let s = String(text);
   let flagged = false;
   for (const pattern of INJECTION_PATTERNS) {
-    if (pattern.test(s)) {
-      flagged = true;
-      s = s.replace(pattern, '[redacted]');
-    }
+    if (pattern.test(s)) { flagged = true; s = s.replace(pattern, '[redacted]'); }
   }
   return { text: s, flagged };
 }
 
-// -- API helpers -------------------------------------------------------------
+// -- state ------------------------------------------------------------------
+
+const state = {
+  runtimeUrl: 'http://localhost:8088',
+  tenantId: '', tenantName: '', encryptionModel: '',
+  pswId: '', authToken: '', consentToken: '',
+  recognition: null, recognizing: false,
+  currentVisit: null, visitClockIn: null,
+};
+
+// -- DOM refs ---------------------------------------------------------------
+
+const $ = (id) => document.getElementById(id);
+const dom = {
+  serverDot: $('server-dot'),
+  tenantSelect: $('tenant-select'),
+  encryptionText: $('encryption-text'),
+  pswId: $('psw-id'),
+  authMethod: $('auth-method'),
+  runtimeUrl: $('runtime-url'),
+  signinBtn: $('signin-btn'),
+  setupMessage: $('setup-message'),
+  setupCard: $('setup-card'), todayCard: $('today-card'),
+  visitCard: $('visit-card'), resultCard: $('result-card'),
+  auditCard: $('audit-card'),
+  pswLabel: $('psw-label'), visitList: $('visit-list'),
+  refreshVisitsBtn: $('refresh-visits-btn'),
+  visitClientLabel: $('visit-client-label'),
+  visitClockTime: $('visit-clock-time'),
+  visitStatusBadge: $('visit-status-badge'),
+  visitAddress: $('visit-address'), visitGps: $('visit-gps'),
+  voiceBtn: $('voice-btn'), voiceBtnText: $('voice-btn-text'),
+  voiceStatus: $('voice-status'),
+  completeVisitBtn: $('complete-visit-btn'),
+  visitMessage: $('visit-message'),
+  resultClientLabel: $('result-client-label'),
+  resultContent: $('result-content'),
+  nextVisitBtn: $('next-visit-btn'),
+  auditContent: $('audit-content'),
+};
+
+// -- utilities --------------------------------------------------------------
+
+function show(el) { el.classList.remove('hidden'); }
+function hide(el) { el.classList.add('hidden'); }
+function showMsg(el, text, kind) {
+  el.textContent = text; el.className = `message ${kind || 'info'}`;
+  show(el); if (kind === 'success') setTimeout(() => hide(el), 4000);
+}
+function h(s) { return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' })[c]); }
+
+// -- API --------------------------------------------------------------------
 
 function apiHeaders() {
   return {
@@ -155,129 +154,99 @@ function apiHeaders() {
 }
 
 async function apiGet(path) {
-  const res = await fetch(`${state.runtimeUrl}${path}`, {
-    method: 'GET',
-    headers: apiHeaders(),
-  });
-  if (!res.ok) {
-    const detail = await res.json().catch(() => ({}));
-    throw new Error(detail.detail || `HTTP ${res.status}`);
-  }
+  const res = await fetch(`${state.runtimeUrl}${path}`, { method: 'GET', headers: apiHeaders() });
+  if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || `HTTP ${res.status}`); }
   return res.json();
 }
 
 async function apiPost(path, body) {
-  const res = await fetch(`${state.runtimeUrl}${path}`, {
-    method: 'POST',
-    headers: apiHeaders(),
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const detail = await res.json().catch(() => ({}));
-    throw new Error(detail.detail || `HTTP ${res.status}`);
-  }
+  const res = await fetch(`${state.runtimeUrl}${path}`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify(body) });
+  if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || `HTTP ${res.status}`); }
   return res.json();
 }
 
-// -- runtime health ----------------------------------------------------------
+// -- server health ----------------------------------------------------------
 
 async function checkServer() {
   try {
     const res = await fetch(`${state.runtimeUrl}/health`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    els.serverStatus.className = 'status-dot status-healthy';
-    els.serverStatusText.textContent = `runtime v${data.version} · ${data.models_loaded} model(s)`;
+    dom.serverDot.className = 'status-dot status-healthy';
+    dom.serverDot.title = `runtime v${data.version} · ${data.models_loaded} model(s)`;
     return true;
   } catch (e) {
-    els.serverStatus.className = 'status-dot status-error';
-    els.serverStatusText.textContent = 'runtime unreachable';
+    dom.serverDot.className = 'status-dot status-error';
+    dom.serverDot.title = I18N.t('server.unreachable');
     return false;
   }
 }
 
-// -- tenant list (multi-tenant registry) -------------------------------------
+// -- tenants ----------------------------------------------------------------
 
 async function loadTenants() {
   try {
     const res = await fetch(`${state.runtimeUrl}/v1/tenants`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    els.tenantSelect.innerHTML = '<option value="">— select your agency —</option>' +
-      (data.tenants || []).map((t) =>
-        `<option value="${escapeHtml(t.id)}" data-name="${escapeHtml(t.name)}" data-encryption="${escapeHtml(t.encryption_model || '')}">${escapeHtml(t.name)}</option>`
+    dom.tenantSelect.innerHTML =
+      `<option value="">— ${I18N.t('setup.select')} —</option>` +
+      (data.tenants || []).map(t =>
+        `<option value="${h(t.id)}" data-name="${h(t.name)}" data-encryption="${h(t.encryption_model || '')}">${h(t.name)}</option>`
       ).join('');
   } catch (e) {
-    els.tenantSelect.innerHTML = `<option value="">— runtime unreachable —</option>`;
+    dom.tenantSelect.innerHTML = `<option value="">— ${I18N.t('setup.unreachable')} —</option>`;
   }
 }
 
-// -- sign in -----------------------------------------------------------------
+dom.tenantSelect.addEventListener('change', () => {
+  const opt = dom.tenantSelect.options[dom.tenantSelect.selectedIndex];
+  if (!opt || !opt.value) return;
+  const enc = opt.dataset.encryption;
+  if (enc === 'agency-byok') dom.encryptionText.textContent = I18N.t('setup.byok');
+  else if (enc === 'platform-managed') dom.encryptionText.textContent = I18N.t('setup.platform');
+  else dom.encryptionText.textContent = I18N.t('setup.shared');
+});
+
+// -- sign in ----------------------------------------------------------------
 
 async function signIn() {
-  const tenantOpt = els.tenantSelect.options[els.tenantSelect.selectedIndex];
-  if (!tenantOpt || !tenantOpt.value) {
-    showMessage(els.setupMessage, 'Pick your agency / tenant first.', 'error');
-    return;
-  }
+  const opt = dom.tenantSelect.options[dom.tenantSelect.selectedIndex];
+  if (!opt || !opt.value) { showMsg(dom.setupMessage, I18N.t('error.signin_failed'), 'error'); return; }
 
-  state.tenantId = tenantOpt.value;
-  state.tenantName = tenantOpt.dataset.name;
-  state.encryptionModel = tenantOpt.dataset.encryption;
-  state.pswId = els.pswId.value.trim();
-  state.runtimeUrl = els.runtimeUrl.value.trim().replace(/\/$/, '') || 'http://localhost:8088';
+  state.tenantId = opt.value;
+  state.tenantName = opt.dataset.name;
+  state.encryptionModel = opt.dataset.encryption;
+  state.pswId = dom.pswId.value.trim();
+  state.runtimeUrl = dom.runtimeUrl.value.trim().replace(/\/$/, '') || 'http://localhost:8088';
 
-  if (!state.pswId) {
-    showMessage(els.setupMessage, 'PSW ID is required.', 'error');
-    return;
-  }
+  if (!state.pswId) { showMsg(dom.setupMessage, I18N.t('error.signin_failed'), 'error'); return; }
+  if (!(await checkServer())) { showMsg(dom.setupMessage, I18N.t('setup.unreachable'), 'error'); return; }
 
-  const ok = await checkServer();
-  if (!ok) {
-    showMessage(els.setupMessage, `Runtime at ${state.runtimeUrl} is unreachable.`, 'error');
-    return;
-  }
-
-  // Auth flow varies by selected method
-  const authMethod = els.authMethod.value;
-  let authResponse;
   try {
-    authResponse = await apiPost('/v1/auth/signin', {
-      tenant_id: state.tenantId,
-      psw_id: state.pswId,
-      method: authMethod,
+    const auth = await apiPost('/v1/auth/signin', {
+      tenant_id: state.tenantId, psw_id: state.pswId, method: dom.authMethod.value,
     });
+    state.authToken = auth.token;
+    state.consentToken = auth.consent_token || '';
+    persistSession();
+    hide(dom.setupCard); show(dom.todayCard); show(dom.auditCard);
+    dom.pswLabel.textContent = state.pswId;
+    await loadVisits();
+    await loadAudit();
   } catch (e) {
-    showMessage(els.setupMessage, `Sign-in failed: ${e.message}`, 'error');
-    return;
+    showMsg(dom.setupMessage, `${I18N.t('error.signin_failed')}: ${e.message}`, 'error');
   }
+}
 
-  state.authToken = authResponse.token;
-  state.consentToken = authResponse.consent_token || '';
-
-  // Show tenant badge
-  els.tenantBadge.textContent = `${state.tenantName} · BYOK`;
-  show(els.tenantBadge);
-
-  // Persist
+function persistSession() {
   try {
     localStorage.setItem('openclinical.session', JSON.stringify({
-      runtimeUrl: state.runtimeUrl,
-      tenantId: state.tenantId,
-      tenantName: state.tenantName,
-      encryptionModel: state.encryptionModel,
-      pswId: state.pswId,
-      authToken: state.authToken,
-      consentToken: state.consentToken,
+      runtimeUrl: state.runtimeUrl, tenantId: state.tenantId, tenantName: state.tenantName,
+      encryptionModel: state.encryptionModel, pswId: state.pswId,
+      authToken: state.authToken, consentToken: state.consentToken,
     }));
   } catch (e) {}
-
-  hide(els.setupCard);
-  show(els.todayCard);
-  show(els.auditCard);
-  els.pswLabel.textContent = state.pswId;
-  await loadVisits();
-  await loadAudit();
 }
 
 function restoreSession() {
@@ -287,14 +256,10 @@ function restoreSession() {
     const sess = JSON.parse(raw);
     if (!sess.tenantId || !sess.pswId || !sess.authToken) return false;
     Object.assign(state, sess);
-    els.runtimeUrl.value = sess.runtimeUrl;
-    els.pswId.value = sess.pswId;
-    els.tenantBadge.textContent = `${sess.tenantName} · BYOK`;
-    show(els.tenantBadge);
+    dom.runtimeUrl.value = sess.runtimeUrl;
+    dom.pswId.value = sess.pswId;
     return true;
-  } catch (e) {
-    return false;
-  }
+  } catch (e) { return false; }
 }
 
 function signOut() {
@@ -302,36 +267,32 @@ function signOut() {
   location.reload();
 }
 
-// -- visits ------------------------------------------------------------------
+// -- visits ----------------------------------------------------------------
 
 async function loadVisits() {
-  els.visitList.innerHTML = '<div class="summary-box">Loading visits…</div>';
+  dom.visitList.innerHTML = `<div class="summary-box">${I18N.t('today.loading')}</div>`;
   try {
     const data = await apiGet(`/v1/visits/today?psw_id=${encodeURIComponent(state.pswId)}`);
-    renderVisitList(data.visits || []);
+    renderVisits(data.visits || []);
   } catch (e) {
-    els.visitList.innerHTML = `<div class="summary-box">Could not load visits: ${escapeHtml(e.message)}</div>`;
+    dom.visitList.innerHTML = `<div class="summary-box">${I18N.t('error.load_visits')}: ${h(e.message)}</div>`;
   }
 }
 
-function renderVisitList(visits) {
+function renderVisits(visits) {
   if (!visits.length) {
-    els.visitList.innerHTML = '<div class="summary-box">No visits scheduled for today.</div>';
+    dom.visitList.innerHTML = `<div class="summary-box">${I18N.t('today.no_visits')}</div>`;
     return;
   }
-  els.visitList.innerHTML = visits.map((v) => `
-    <div class="visit-card" data-visit-id="${escapeHtml(v.id)}">
-      <div>
-        <span class="visit-time-main">${escapeHtml(v.scheduled_start)} – ${escapeHtml(v.scheduled_end)}</span>
-        <span class="visit-status ${escapeHtml(v.status)}">${escapeHtml(v.status)}</span>
-      </div>
-      <div class="visit-client">${escapeHtml(v.client_name)}</div>
-      <div class="visit-meta">${escapeHtml(v.address || '')} · ${escapeHtml(v.service_type || '')}</div>
+  dom.visitList.innerHTML = visits.map(v => `
+    <div class="visit-item" data-visit-id="${h(v.id)}">
+      <div class="visit-time">${h(v.scheduled_start)} – ${h(v.scheduled_end)}</div>
+      <div class="visit-client">${h(v.client_name)}</div>
+      <div class="visit-meta">${h(v.address || '')} · ${h(v.service_type || '')}</div>
     </div>
   `).join('');
-
-  for (const card of els.visitList.querySelectorAll('.visit-card')) {
-    card.addEventListener('click', () => openVisit(card.dataset.visitId));
+  for (const item of dom.visitList.querySelectorAll('.visit-item')) {
+    item.addEventListener('click', () => openVisit(item.dataset.visitId));
   }
 }
 
@@ -341,397 +302,313 @@ async function openVisit(visitId) {
     state.currentVisit = visit;
     state.visitClockIn = new Date().toISOString();
 
-    els.visitClientLabel.textContent = visit.client_name;
-    els.visitAddress.textContent = visit.address || '';
+    dom.visitClientLabel.textContent = visit.client_name;
+    dom.visitAddress.textContent = visit.address || '';
+    dom.visitStatusBadge.textContent = I18N.t('visit.in_progress');
 
-    // GPS check-in
     if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition((pos) => {
-        const lat = pos.coords.latitude.toFixed(6);
-        const lng = pos.coords.longitude.toFixed(6);
-        els.visitGps.textContent = `📍 ${lat}, ${lng}`;
-        // Log GPS clock-in event
+      navigator.geolocation.getCurrentPosition(pos => {
+        const lat = pos.coords.latitude.toFixed(6), lng = pos.coords.longitude.toFixed(6);
+        dom.visitGps.textContent = `📍 ${lat}, ${lng}`;
         apiPost('/v1/visits/clock-in', {
-          visit_id: visitId,
-          psw_id: state.pswId,
-          gps_lat: parseFloat(lat),
-          gps_lng: parseFloat(lng),
-          timestamp: state.visitClockIn,
+          visit_id: visitId, psw_id: state.pswId,
+          gps_lat: parseFloat(lat), gps_lng: parseFloat(lng), timestamp: state.visitClockIn,
         }).catch(() => {});
-      }, (err) => {
-        els.visitGps.textContent = `📍 GPS unavailable (${err.message})`;
-      });
-    } else {
-      els.visitGps.textContent = '📍 GPS not supported';
-    }
+      }, err => { dom.visitGps.textContent = `📍 GPS unavailable (${err.message})`; });
+    } else { dom.visitGps.textContent = '📍 GPS not supported'; }
 
-    els.visitStatusBadge.textContent = 'in-progress';
-    els.visitStatusBadge.className = 'visit-status in-progress';
-
-    // Start visit clock display
-    updateVisitClock();
-    setInterval(updateVisitClock, 1000);
-
-    hide(els.todayCard);
-    show(els.visitCard);
-    show(els.auditCard);
+    hide(dom.todayCard); show(dom.visitCard);
+    setInterval(() => {
+      if (!state.visitClockIn) return;
+      const elapsed = Math.floor((Date.now() - new Date(state.visitClockIn).getTime()) / 1000);
+      const hh = Math.floor(elapsed / 3600), mm = Math.floor((elapsed % 3600) / 60), ss = elapsed % 60;
+      dom.visitClockTime.textContent = `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;
+    }, 1000);
   } catch (e) {
-    showMessage(els.setupMessage, `Could not open visit: ${e.message}`, 'error');
+    showMsg(dom.setupMessage, `${I18N.t('error.open_visit')}: ${e.message}`, 'error');
   }
 }
 
-function updateVisitClock() {
-  if (!state.visitClockIn) return;
-  const start = new Date(state.visitClockIn).getTime();
-  const now = Date.now();
-  const elapsed = Math.floor((now - start) / 1000);
-  const h = Math.floor(elapsed / 3600);
-  const m = Math.floor((elapsed % 3600) / 60);
-  const s = elapsed % 60;
-  els.visitClockTime.textContent =
-    `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-}
-
-// -- voice input -------------------------------------------------------------
+// -- voice dictation --------------------------------------------------------
 
 function initVoice() {
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) {
-    els.voiceBtn.disabled = true;
-    els.voiceStatus.textContent = 'voice not supported — use Chrome/Edge';
-    return;
-  }
-
-  state.recognition = new SpeechRecognition();
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { dom.voiceBtn.disabled = true; dom.voiceStatus.textContent = I18N.t('visit.voice_unsupported'); return; }
+  state.recognition = new SR();
   state.recognition.continuous = true;
   state.recognition.interimResults = true;
-  state.recognition.lang = 'en-US';
+  state.recognition.lang = I18N.locale === 'fr' ? 'fr-CA' : 'en-US';
 
   let finalTranscript = '';
-
   state.recognition.onresult = (event) => {
     let interim = '';
     for (let i = event.resultIndex; i < event.results.length; i++) {
-      const transcript = event.results[i][0].transcript;
-      if (event.results[i].isFinal) {
-        finalTranscript += transcript + ' ';
-      } else {
-        interim += transcript;
-      }
+      if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript + ' ';
+      else interim += event.results[i][0].transcript;
     }
-    els.notes.value = (els.notes.value || '') + (finalTranscript || '') + interim;
+    const notesEl = document.getElementById('notes');
+    notesEl.value = (notesEl.value || '') + (finalTranscript || '') + interim;
     if (finalTranscript) finalTranscript = '';
   };
-
-  state.recognition.onerror = (event) => {
-    els.voiceStatus.textContent = `voice error: ${event.error}`;
-    stopVoice();
-  };
-
+  state.recognition.onerror = (event) => { dom.voiceStatus.textContent = `${I18N.t('visit.voice_error')}: ${event.error}`; stopVoice(); };
   state.recognition.onend = () => {
-    if (state.recognizing) {
-      try { state.recognition.start(); } catch (e) {}
-    } else {
-      els.voiceBtn.classList.remove('recording');
-      els.voiceBtnText.textContent = 'Start dictation';
-      els.voiceStatus.textContent = '';
+    if (state.recognizing) { try { state.recognition.start(); } catch (e) {} }
+    else {
+      dom.voiceBtn.classList.remove('recording');
+      dom.voiceBtnText.textContent = I18N.t('visit.start_dictation');
+      dom.voiceStatus.textContent = '';
     }
   };
 }
 
 function startVoice() {
   if (!state.recognition) return;
+  // Update recognition language to match current locale
+  state.recognition.lang = I18N.locale === 'fr' ? 'fr-CA' : 'en-US';
   state.recognizing = true;
-  els.voiceBtn.classList.add('recording');
-  els.voiceBtnText.textContent = 'Stop dictation';
-  els.voiceStatus.textContent = 'listening…';
-  try { state.recognition.start(); } catch (e) {
-    els.voiceStatus.textContent = `voice start failed: ${e.message}`;
-    stopVoice();
-  }
+  dom.voiceBtn.classList.add('recording');
+  dom.voiceBtnText.textContent = I18N.t('visit.stop_dictation');
+  dom.voiceStatus.textContent = I18N.t('visit.listening');
+  try { state.recognition.start(); } catch (e) { dom.voiceStatus.textContent = e.message; stopVoice(); }
 }
 
 function stopVoice() {
   state.recognizing = false;
-  if (state.recognition) {
-    try { state.recognition.stop(); } catch (e) {}
-  }
-  els.voiceBtn.classList.remove('recording');
-  els.voiceBtnText.textContent = 'Start dictation';
-  els.voiceStatus.textContent = '';
+  if (state.recognition) { try { state.recognition.stop(); } catch (e) {} }
+  dom.voiceBtn.classList.remove('recording');
+  dom.voiceBtnText.textContent = I18N.t('visit.start_dictation');
+  dom.voiceStatus.textContent = '';
 }
 
-// -- inference + visit completion -------------------------------------------
+// -- complete visit ---------------------------------------------------------
 
-async function generateSummary() {
+async function completeVisit() {
   if (!state.currentVisit) return;
 
-  const notesSanitized = sanitize(els.notes.value);
+  const notesSanitized = sanitize(document.getElementById('notes').value);
   if (notesSanitized.flagged) {
-    showMessage(els.visitMessage, 'Prompt-injection patterns detected in notes — content sanitized before AI processing.', 'info');
+    showMsg(dom.visitMessage, 'Prompt-injection patterns detected in notes — content sanitized before AI processing.', 'info');
   }
 
-  els.generateSummaryBtn.disabled = true;
-  els.generateSummaryBtn.textContent = 'Generating…';
+  dom.completeVisitBtn.disabled = true;
+  dom.completeVisitBtn.textContent = 'Generating…';
 
   try {
     const res = await apiPost('/v1/inference', {
-      tenant_id: state.tenantId,
-      model_id: 'psw-shift-handoff',
-      patient_id: state.currentVisit.client_id,
-      consent_token: state.consentToken,
+      tenant_id: state.tenantId, model_id: 'psw-shift-handoff',
+      patient_id: state.currentVisit.client_id, consent_token: state.consentToken,
       inputs: {
-        resident_id: state.currentVisit.client_id,
-        psw_id: state.pswId,
-        visit_id: state.currentVisit.id,
-        timestamp: new Date().toISOString(),
+        resident_id: state.currentVisit.client_id, psw_id: state.pswId,
+        visit_id: state.currentVisit.id, timestamp: new Date().toISOString(),
         notes: notesSanitized.text,
         observations: {
-          bp: els.bp.value || null,
-          hr: els.hr.value || null,
-          temp_c: els.temp.value || null,
-          spo2: els.spo2.value ? `${els.spo2.value}%` : null,
-          pain: els.pain.value || null,
-          meal_pct: els.meal.value || null,
-          ambulation: els.ambulation.value || null,
-          mood: els.mood.value || null,
+          bp: document.getElementById('bp').value || null,
+          hr: document.getElementById('hr').value || null,
+          temp_c: document.getElementById('temp').value || null,
+          spo2: document.getElementById('spo2').value ? `${document.getElementById('spo2').value}%` : null,
+          pain: document.getElementById('pain').value || null,
+          meal_pct: document.getElementById('meal').value || null,
+          ambulation: document.getElementById('ambulation').value || null,
+          mood: document.getElementById('mood').value || null,
         },
       },
+    });
+
+    // Clock out
+    await apiPost('/v1/visits/clock-out', {
+      visit_id: state.currentVisit.id, psw_id: state.pswId,
+      timestamp: new Date().toISOString(),
+      family_visible_note: sanitize(document.getElementById('family-visible').value).text,
     });
 
     renderResult(res);
     await loadAudit();
   } catch (e) {
-    showMessage(els.visitMessage, `Error: ${e.message}`, 'error');
+    showMsg(dom.visitMessage, `${I18N.t('error.generate')}: ${e.message}`, 'error');
   } finally {
-    els.generateSummaryBtn.disabled = false;
-    els.generateSummaryBtn.textContent = 'Generate visit summary';
-  }
-}
-
-async function clockOut() {
-  if (!state.currentVisit) return;
-
-  els.clockOutBtn.disabled = true;
-  els.clockOutBtn.textContent = 'Clocking out…';
-
-  try {
-    // Generate summary first if not yet
-    await generateSummary();
-
-    // Then clock out
-    const res = await apiPost('/v1/visits/clock-out', {
-      visit_id: state.currentVisit.id,
-      psw_id: state.pswId,
-      timestamp: new Date().toISOString(),
-      family_visible_note: sanitize(els.familyVisible.value).text,
-    });
-
-    showMessage(els.visitMessage, `Visit complete. Audit ID: ${res.audit_event_id}`, 'success');
-    setTimeout(() => backToToday(), 1500);
-  } catch (e) {
-    showMessage(els.visitMessage, `Clock-out failed: ${e.message}`, 'error');
-  } finally {
-    els.clockOutBtn.disabled = false;
-    els.clockOutBtn.textContent = 'Clock out + finalize';
+    dom.completeVisitBtn.disabled = false;
+    dom.completeVisitBtn.textContent = I18N.t('visit.complete');
   }
 }
 
 function renderResult(data) {
   const handoff = data.outputs?.shift_handoff || {};
   const concerns = handoff.concerns || [];
-  const observations = handoff.structured_observations || {};
 
-  const concernsHtml = concerns.length
-    ? concerns.map((c) => `
-        <div class="concern ${escapeHtml(c.severity)}">
-          <span class="severity">${escapeHtml(c.severity)}</span>
-          <strong>${escapeHtml(c.type)}</strong>: ${escapeHtml(c.detail)}
-        </div>
-      `).join('')
-    : '<div class="summary-box">No clinical concerns flagged.</div>';
-
-  const vitals = observations.vitals || {};
-  const vitalsHtml = `
-    <div class="summary-box">
-      <strong>Vitals:</strong>
-      ${vitals.bp ? `BP ${escapeHtml(vitals.bp)} · ` : ''}
-      ${vitals.hr ? `HR ${escapeHtml(vitals.hr)} · ` : ''}
-      ${vitals.temp_c ? `Temp ${escapeHtml(vitals.temp_c)}°C · ` : ''}
-      ${vitals.spo2 ? `SpO2 ${escapeHtml(vitals.spo2)} · ` : ''}
-      ${vitals.pain ? `Pain ${escapeHtml(vitals.pain)}/10` : ''}
-    </div>
+  dom.resultContent.innerHTML = `
+    <div class="result-section"><h3>${I18N.t('result.summary')}</h3>
+      <div class="summary-box">${h(handoff.summary || I18N.t('result.no_summary'))}</div></div>
+    <div class="result-section"><h3>${I18N.t('result.concerns')}</h3>
+      ${concerns.length ? concerns.map(c => `<div class="concern ${h(c.severity)}"><span class="severity">${h(c.severity)}</span> <strong>${h(c.type)}</strong>: ${h(c.detail)}</div>`).join('') : `<div class="summary-box">${I18N.t('result.no_concerns')}</div>`}</div>
+    <div class="result-section"><h3>${I18N.t('result.audit')}</h3>
+      <div class="summary-box"><code>inference_id: ${h(data.inference_id)}</code><br><code>latency: ${data.latency_ms}ms</code></div></div>
   `;
-
-  els.resultContent.innerHTML = `
-    <div class="result-section">
-      <h3>Summary</h3>
-      <div class="summary-box">${escapeHtml(handoff.summary || '(no summary)')}</div>
-    </div>
-    <div class="result-section">
-      <h3>Vitals captured</h3>
-      ${vitalsHtml}
-    </div>
-    <div class="result-section">
-      <h3>${concerns.length ? 'Concerns flagged' : 'Concerns'}</h3>
-      ${concernsHtml}
-    </div>
-    <div class="result-section">
-      <h3>Audit</h3>
-      <div class="summary-box">
-        <code>tenant: ${escapeHtml(state.tenantId)}</code><br>
-        <code>inference_id: ${escapeHtml(data.inference_id)}</code><br>
-        <code>audit_event_id: ${escapeHtml(data.audit_event_id)}</code><br>
-        <code>latency: ${data.latency_ms}ms</code>
-      </div>
-    </div>
-  `;
-
-  els.resultClientLabel.textContent = state.currentVisit.client_name;
-  hide(els.visitCard);
-  show(els.resultCard);
+  dom.resultClientLabel.textContent = state.currentVisit.client_name;
+  hide(dom.visitCard); show(dom.resultCard);
 }
 
-function backToToday() {
-  state.currentVisit = null;
-  state.visitClockIn = null;
-  hide(els.visitCard);
-  hide(els.resultCard);
-  show(els.todayCard);
-  resetVisitForm();
+function resetVisits() {
+  state.currentVisit = null; state.visitClockIn = null;
+  hide(dom.visitCard); hide(dom.resultCard); show(dom.todayCard);
+  for (const id of ['bp','hr','temp','spo2','pain','meal','ambulation','mood','notes','family-visible']) {
+    const el = document.getElementById(id); if (el) el.value = '';
+  }
+  hide(dom.visitMessage); if (dom.visitGps) dom.visitGps.textContent = '';
   loadVisits();
 }
 
-function resetVisitForm() {
-  for (const id of ['bp', 'hr', 'temp', 'spo2', 'pain', 'meal', 'ambulation', 'mood', 'notes', 'familyVisible']) {
-    const el = document.getElementById(id);
-    if (el) el.value = '';
-  }
-  hide(els.visitMessage);
-  if (els.visitGps) els.visitGps.textContent = '';
-}
-
-// -- audit -------------------------------------------------------------------
+// -- audit ------------------------------------------------------------------
 
 async function loadAudit() {
   try {
     const res = await apiGet(`/audit/events?tenant_id=${encodeURIComponent(state.tenantId)}&limit=10`);
     const events = res.events || [];
-
-    if (!events.length) {
-      els.auditContent.innerHTML = '<div class="summary-box">No audit events yet for this tenant.</div>';
-      return;
-    }
-
-    els.auditContent.innerHTML = events.map((e) => `
-      <div class="audit-event">
-        <span class="event-type ${escapeHtml(e.event_type)}">${escapeHtml(e.event_type)}</span>
-        <code>${escapeHtml(e.timestamp)}</code> · ${escapeHtml(e.model_id || e.event_type)}
-        ${e.reason ? `<br><small>${escapeHtml(e.reason)}</small>` : ''}
-      </div>
-    `).join('');
+    dom.auditContent.innerHTML = events.length
+      ? events.map(e => `<div class="audit-event"><span class="badge ${h(e.event_type)}">${h(e.event_type)}</span> <code>${h(e.timestamp)}</code> · ${h(e.model_id || e.event_type)}</div>`).join('')
+      : `<div class="summary-box">${I18N.t('audit.none')}</div>`;
   } catch (e) {
-    els.auditContent.innerHTML = `<div class="summary-box">Audit unavailable: ${escapeHtml(e.message)}</div>`;
+    dom.auditContent.innerHTML = `<div class="summary-box">${I18N.t('error.audit_unavailable')}: ${h(e.message)}</div>`;
   }
 }
 
-// -- family portal -----------------------------------------------------------
+// -- connectors -------------------------------------------------------------
 
-async function openFamilyPortal() {
-  hide(els.setupCard);
-  hide(els.todayCard);
-  hide(els.visitCard);
-  hide(els.resultCard);
-  hide(els.auditCard);
-  show(els.familyCard);
+const CONNECTORS = [
+  { name: 'Epic (FHIR R4)', type: 'EHR', status: 'planned' },
+  { name: 'Cerner / Oracle Health', type: 'EHR', status: 'planned' },
+  { name: 'Meditech Expanse', type: 'EHR', status: 'planned' },
+  { name: 'Athenahealth', type: 'EHR', status: 'planned' },
+  { name: 'PointClickCare', type: 'LTC EHR', status: 'in-development' },
+  { name: 'AlayaCare', type: 'Home Care', status: 'in-development' },
+  { name: 'FHIR R4 (native)', type: 'Standard', status: 'available' },
+  { name: 'HL7v2 (MLLP)', type: 'Standard', status: 'in-development' },
+  { name: 'DICOMweb', type: 'Imaging', status: 'planned' },
+  { name: 'Twist Bioscience', type: 'Synthesis', status: 'available' },
+  { name: 'IDT (Integrated DNA Tech)', type: 'Synthesis', status: 'available' },
+  { name: 'GenScript', type: 'Synthesis', status: 'available' },
+  { name: 'Benchling', type: 'Lab Informatics', status: 'community' },
+  { name: 'REDCap', type: 'Research', status: 'community' },
+  { name: 'SMART on FHIR', type: 'App Platform', status: 'planned' },
+  { name: 'OpenMRS', type: 'Open Source EHR', status: 'community' },
+  { name: 'Oscar EMR', type: 'Canadian EMR', status: 'planned' },
+  { name: 'Telus Health (MedAccess)', type: 'Canadian EMR', status: 'planned' },
+];
 
-  // Family portal: read-only view of family-visible notes
-  // No PHI, no clinical detail, no AI outputs
-  els.familyContent.innerHTML = '<div class="summary-box">Loading family-visible visits…</div>';
-
-  try {
-    const res = await apiGet(`/v1/family/timeline?token=${encodeURIComponent(state.authToken)}`);
-    const visits = res.visits || [];
-
-    if (!visits.length) {
-      els.familyContent.innerHTML = '<div class="summary-box">No family-visible visits yet.</div>';
-      return;
-    }
-
-    els.familyContent.innerHTML = visits.map((v) => `
-      <div class="visit-card">
-        <div>
-          <span class="visit-time-main">${escapeHtml(v.timestamp)}</span>
-          <span class="visit-status completed">completed</span>
-        </div>
-        <div class="visit-client">PSW: ${escapeHtml(v.psw_name || 'caregiver')}</div>
-        <div class="visit-meta">
-          ${v.family_visible_note ? `<div class="summary-box" style="margin-top:0.5rem;">${escapeHtml(v.family_visible_note)}</div>` : '<em>No family-visible note for this visit.</em>'}
-        </div>
-      </div>
-    `).join('');
-
-    els.familyClientLabel.textContent = res.client_name || 'your loved one';
-  } catch (e) {
-    els.familyContent.innerHTML = `<div class="summary-box">Family portal unavailable: ${escapeHtml(e.message)}</div>`;
-  }
+function renderConnectors() {
+  const grid = document.getElementById('connector-grid');
+  grid.innerHTML = CONNECTORS.map(c => `
+    <div class="connector-card">
+      <div class="connector-name">${h(c.name)}</div>
+      <div class="connector-type">${h(c.type)}</div>
+      <span class="connector-status ${c.status}">${I18N.t('connectors.' + c.status) || c.status}</span>
+    </div>
+  `).join('');
 }
 
-function closeFamilyPortal() {
-  hide(els.familyCard);
-  show(els.setupCard);
-}
+// -- business portal --------------------------------------------------------
 
-// -- wiring ------------------------------------------------------------------
-
-els.tenantSelect.addEventListener('change', () => {
-  const opt = els.tenantSelect.options[els.tenantSelect.selectedIndex];
-  if (!opt || !opt.value) {
-    els.encryptionText.textContent = 'select a tenant';
+async function submitBusinessApp() {
+  const org = document.getElementById('biz-org').value.trim();
+  const email = document.getElementById('biz-email').value.trim();
+  if (!org || !email) {
+    showMsg(document.getElementById('biz-message'), I18N.t('business.form_error'), 'error');
     return;
   }
-  const enc = opt.dataset.encryption;
-  if (enc === 'agency-byok') {
-    els.encryptionIcon.textContent = '🔒';
-    els.encryptionText.textContent = 'agency BYOK — agency-held encryption keys';
-  } else if (enc === 'platform-managed') {
-    els.encryptionIcon.textContent = '🔐';
-    els.encryptionText.textContent = 'platform-managed encryption';
-  } else {
-    els.encryptionIcon.textContent = '🔓';
-    els.encryptionText.textContent = 'shared key — not recommended for healthcare';
+
+  const sub = document.getElementById('biz-submit');
+  sub.disabled = true; sub.textContent = 'Submitting…';
+
+  try {
+    await fetch(`${state.runtimeUrl}/v1/business/apply`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        org_name: org, contact_email: email,
+        org_type: document.getElementById('biz-type').value,
+        estimated_volume: document.getElementById('biz-tier').value,
+      }),
+    });
+    showMsg(document.getElementById('biz-message'), I18N.t('business.form_success'), 'success');
+    document.getElementById('biz-org').value = '';
+    document.getElementById('biz-email').value = '';
+  } catch (e) {
+    showMsg(document.getElementById('biz-message'), `${I18N.t('business.form_error')}: ${e.message}`, 'error');
+  } finally {
+    sub.disabled = false; sub.textContent = I18N.t('business.form_submit');
   }
-});
-
-els.signinBtn.addEventListener('click', signIn);
-els.signoutBtn.addEventListener('click', signOut);
-els.familyPortalBtn.addEventListener('click', openFamilyPortal);
-els.familyBackBtn.addEventListener('click', closeFamilyPortal);
-els.refreshVisitsBtn.addEventListener('click', loadVisits);
-els.generateSummaryBtn.addEventListener('click', generateSummary);
-els.clockOutBtn.addEventListener('click', clockOut);
-els.cancelVisitBtn.addEventListener('click', backToToday);
-els.nextVisitBtn.addEventListener('click', backToToday);
-els.backToTodayBtn.addEventListener('click', backToToday);
-els.refreshAuditBtn.addEventListener('click', loadAudit);
-els.voiceBtn.addEventListener('click', () => {
-  if (state.recognizing) stopVoice(); else startVoice();
-});
-
-setInterval(checkServer, 5000);
-
-initVoice();
-checkServer();
-loadTenants();
-
-if (restoreSession()) {
-  hide(els.setupCard);
-  show(els.todayCard);
-  show(els.auditCard);
-  els.pswLabel.textContent = state.pswId;
-  checkServer();
-  loadVisits();
-  loadAudit();
 }
 
-window.openclinicalSignOut = signOut;
+// -- tab navigation ---------------------------------------------------------
+
+function switchTab(name) {
+  for (const panel of document.querySelectorAll('.tab-panel')) panel.classList.remove('active');
+  for (const btn of document.querySelectorAll('[data-tab]')) btn.classList.remove('active');
+  const panel = document.getElementById(`panel-${name}`);
+  if (panel) panel.classList.add('active');
+  const button = document.querySelector(`[data-tab="${name}"]`);
+  if (button) button.classList.add('active');
+}
+
+// -- wiring -----------------------------------------------------------------
+
+async function init() {
+  // Restore theme
+  const savedTheme = (() => { try { return localStorage.getItem('openclinical.theme'); } catch (e) { return null; } })();
+  applyTheme(savedTheme || 'light');
+
+  // Restore language
+  const savedLang = (() => { try { return localStorage.getItem('openclinical.lang'); } catch (e) { return null; } })();
+  await I18N.load(savedLang || 'en');
+  I18N.applyToDOM();
+
+  // Load connectors (always visible on Connect tab)
+  renderConnectors();
+
+  // Wire theme toggle
+  document.getElementById('theme-toggle').addEventListener('click', toggleTheme);
+  for (const b of document.querySelectorAll('[data-theme-choice]')) {
+    b.addEventListener('click', () => applyTheme(b.dataset.themeChoice));
+  }
+
+  // Wire language switcher
+  for (const b of document.querySelectorAll('[data-lang-choice]')) {
+    b.addEventListener('click', async () => {
+      await I18N.load(b.dataset.langChoice);
+      I18N.applyToDOM();
+      try { localStorage.setItem('openclinical.lang', I18N.locale); } catch (e) {}
+      renderConnectors(); // re-render with new language
+    });
+  }
+
+  // Wire tab navigation
+  for (const b of document.querySelectorAll('[data-tab]')) {
+    b.addEventListener('click', () => switchTab(b.dataset.tab));
+  }
+
+  // Wire PSW flow
+  dom.signinBtn.addEventListener('click', signIn);
+  dom.refreshVisitsBtn.addEventListener('click', loadVisits);
+  dom.completeVisitBtn.addEventListener('click', completeVisit);
+  dom.nextVisitBtn.addEventListener('click', resetVisits);
+  dom.voiceBtn.addEventListener('click', () => { if (state.recognizing) stopVoice(); else startVoice(); });
+  document.getElementById('settings-signout').addEventListener('click', signOut);
+  document.getElementById('biz-submit').addEventListener('click', submitBusinessApp);
+
+  // Periodic health check
+  setInterval(checkServer, 5000);
+
+  // Init voice
+  initVoice();
+
+  // Load tenants + check server
+  checkServer();
+  loadTenants();
+
+  // Restore session if available
+  if (restoreSession()) {
+    hide(dom.setupCard); show(dom.todayCard); show(dom.auditCard);
+    dom.pswLabel.textContent = state.pswId;
+    checkServer(); loadVisits(); loadAudit();
+  }
+}
+
+document.addEventListener('DOMContentLoaded', init);

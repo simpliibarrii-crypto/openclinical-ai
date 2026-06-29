@@ -33,6 +33,11 @@ class Settings:
         cors_origins = os.getenv("OPENCLINICAL_CORS_ORIGINS", "*")
         self.allowed_origins = cors_origins.split(",") if cors_origins != "*" else ["*"]
 
+        # Care plans path — per-tenant, per-facility structured care plans
+        self.careplans_path = Path(
+            os.getenv("OPENCLINICAL_CAREPLANS_PATH", "/var/lib/openclinical/careplans")
+        )
+
         # FHIR base URL — for consent + audit FHIR resource lookups
         self.fhir_base_url = os.getenv("OPENCLINICAL_FHIR_BASE_URL", "")
 

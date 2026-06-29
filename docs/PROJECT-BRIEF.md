@@ -81,6 +81,7 @@ An open-source monorepo providing the deployment substrate every biology AI and 
 ## Built on
 
 - **Biology AI references:** AlphaFold (DB + code + weights), RoseTTAFold, ESM-3, Mila protein generation models
+- **Clinical AI efficiency:** DeepSeek V4-Pro (1.6T params / 49B activated MoE, hybrid CSA+HCA attention, MIT-licensed, $0.435/$0.87 per 1M tokens), DeepSeek V4-Flash (284B / 13B activated, MIT-licensed), DeepSeek V4-Pro-DSpark (MIT-licensed open-source inference framework, paired with DeepSpec training repo — designed for fully auditable on-prem deployment)
 - **FHIR servers:** HAPI FHIR (2.4k★), Medplum (2.5k★)
 - **Imaging AI:** MONAI (8.4k★), nnU-Net (8.6k★)
 - **Federated learning:** NVIDIA FLARE, Flower (6.7k★)
@@ -88,6 +89,39 @@ An open-source monorepo providing the deployment substrate every biology AI and 
 - **Edge inference:** NVIDIA Clara/Holoscan, Intel OpenVINO, Hailo
 - **Confidential compute:** Intel SGX, AMD SEV, NVIDIA H100/H200 CC
 - **Canadian biology AI:** Mila, Vector, Deep Genomics, AbCellera, NRC, OHRI
+
+## Affordability policy (v0.3.0 — added 2026-06-28)
+
+The "affordable for everyone" mandate is operationalized through an affordability tier system that anchors in DeepSeek V4-Pro / V4-Flash's published pricing. The principle: every tier has **full feature parity** — only resource ceilings change (max context, rate limits), never denied capabilities.
+
+| Tier | Default model | Quantization | Max context | Example institutions |
+|------|---------------|--------------|-------------|----------------------|
+| `critical_access_rural` | V4-Flash / DSpark | fp8 | 32K | WAHA, remote nursing stations |
+| `ltc_home` | V4-Flash | fp8 | 32K | Garry J Armstrong, Perley Health, Revera |
+| `home_care_agency` | V4-Flash | fp8 | 16K | Bayshore, Carefor, VHA, SE Health, ParaMed |
+| `regional_hospital` | V4-Pro | fp16 | 128K | The Ottawa Hospital, CHEO |
+| `academic_medical_center` | V4-Pro | fp16 | 1M | UHN, Sunnybrook, Mount Sinai, VGH |
+| `biotech_research` | V4-Pro | fp16 | 1M | Mila, Vector, NRC, AbCellera |
+| `biotech_sovereign` | DSpark on-prem | fp16 | hardware-bounded | Air-gapped sovereign deployments |
+
+**Cost economics** (published V4-Pro pricing as of 2026-05-22):
+- V4-Pro: $0.435/M input + $0.87/M output tokens
+- V4-Flash: $0.10/M input + $0.30/M output tokens (estimate)
+- DSpark on-prem: $0 marginal API cost after initial setup
+- Closed-source baseline (for savings reporting): GPT-5.5 ~$10/$30, Opus 4.7 ~$15/$75
+
+**Reference home-care economics (Bayshore Ottawa, 100 inferences/day, 1000 in / 500 out tokens):**
+- Estimated monthly cost: $0.75 (V4-Flash pricing)
+- Same volume on GPT-5.5: $75.00 (100x more expensive)
+- Same volume on Opus 4.7: $157.50 (210x more expensive)
+
+**Equity-first invariants:**
+1. Every tier has full feature parity — no tier is denied a capability.
+2. Quantization defaults are per-model, not per-tenant. Clinical-decision-class models (drug interaction, variant impact, adverse event detection, fall risk) always default to fp16 regardless of tier — regulator-facing determinism isn't a tier policy.
+3. Per-tenant cost reports are tenant-scoped ONLY — no cross-tenant visibility. Affordability is for the patient, not for tenant-vs-tenant competitive comparison.
+4. biotech_sovereign uses DSpark on-prem at $0 marginal API cost — sovereignty is the policy, not an optimization.
+
+**DSpark as deployment target (planned v2):** DeepSeek V4-Pro-DSpark is the MIT-licensed open-source inference framework paired with the open DeepSpec training repo. DSpark is designed for fully auditable, air-gapped on-prem deployment — exactly the deployment story openclinical-ai's sovereign-tier (biotech_sovereign) is built for. v0.3.0 ships the substrate-side seams (`runtime/efficient.py` interface, `runtime/affordability.py` policy, `runtime/cost.py` accounting); v2 integrates an actual DSpark server adapter.
 
 ## Roadmap (initial 12 months)
 

@@ -36,7 +36,11 @@ FILES = [
     "docs/THREAT-MODEL.md",
     "psw-assistant/app.js",
     "psw-assistant/index.html",
+    "psw-assistant/manifest.json",
     "psw-assistant/style.css",
+    "psw-assistant/assets/logo.svg",
+    "psw-assistant/locales/en.json",
+    "psw-assistant/locales/fr.json",
     "pyproject.toml",
     "registry/keys/default.pub",
     "registry/psw-shift-handoff.v1.0.0.manifest.json",
@@ -110,7 +114,7 @@ def push_file(rel_path: str, sha: str | None) -> bool:
     content_b64 = base64.b64encode(content).decode("ascii")
 
     payload = {
-                    "message": f"openclinical-ai v0.3.0 affordability tier: {rel_path}",
+                    "message": f"openclinical-ai v0.4.0 visual+i18n+connectors: {rel_path}",
                     "content": content_b64,
                     "branch": "main",
                 }

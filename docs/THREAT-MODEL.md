@@ -174,3 +174,71 @@ Starting STRIDE-style analysis. Living document.
 - Insider threat from hospital staff with legitimate access — handled by hospital IAM
 - Patient-side social engineering — handled by patient education
 - Quantum-resistant cryptography — planned for v2 (when NIST PQC standards final)
+
+## Bio-security threats (generative biology layer) — added 2026-06-28
+
+### Biosecurity threat model
+
+**Critical context:** [Science 2025 paper](https://www.science.org/doi/10.1126/science.adu8578) showed current DNA synthesis screening is inadequate against AI-redesigned protein sequences. openclinical-ai enforces multi-layer screening at the substrate level — not relying on downstream synthesis vendors.
+
+### Biosecurity threats (STRIDE)
+
+#### Spoofing (bio)
+- **B-S1:** Forged generation request claiming to be from authorized tenant
+  - *Mitigation:* Multi-tenant auth (`require_tenant()`), tenant_id in body must match X-Tenant-ID header, session token binding
+- **B-S2:** Forged model output (model substitution attack — model returns different sequence than expected)
+  - *Mitigation:* Ed25519-signed model manifests, SHA-256 hash pinning, reproducibility check, model version logged in every generation event
+
+#### Tampering (bio)
+- **B-T1:** Synthesis order tampered to ship different sequence than was screened
+  - *Mitigation:* Biosecurity hash (SHA-256 of screened sequence) attached to order, vendor-side verification of hash before synthesis, audit trail
+- **B-T2:** Generated sequence tampered in transit
+  - *Mitigation:* TLS required, sequence_hash logged at generation time, vendor verifies hash
+
+#### Repudiation (bio)
+- **B-R1:** Researcher denies generating a flagged sequence
+  - *Mitigation:* Full audit trail: tenant_id, psw_id, model_id + version, sequence_hash, biosecurity screening result, generation timestamp, audit_event_id, generation_id
+
+#### Information disclosure (bio)
+- **B-I1:** Generated sequence leaks via inference timing attack
+  - *Mitigation:* Constant-time generation, batching, no per-tenant timing variance
+- **B-I2:** Biosecurity screening logic disclosed via reverse-engineering
+  - *Mitigation:* Screening patterns are public (IGS standard requires disclosure) but the screening decision audit log is tenant-encrypted (BYOK)
+- **B-I3:** Cross-tenant generation data leakage (Tenant A generates sequence, Tenant B sees it)
+  - *Mitigation:* Tenant-scoped audit, BYOK encryption on generation results, generation_id not predictable across tenants
+
+#### Denial of service (bio)
+- **B-D1:** Expensive generation flooded (Baker lab models need GPU)
+  - *Mitigation:* Per-tenant rate limits, queue depth caps, GPU resource quotas per tenant
+- **B-D2:** Synthesis vendor API flooded
+  - *Mitigation:* Order queue, retry-with-backoff, vendor failover
+
+#### Elevation of privilege (bio)
+- **B-E1:** Researcher bypasses biosecurity screening
+  - *Mitigation:* Screening is non-optional in the generation pipeline, sequence with risk_score > 0.7 raises HTTP 403, blocked events logged as `biosecurity-blocked`
+- **B-E2:** Synthesis vendor order accepted without biosecurity screening
+  - *Mitigation:* `/v1/synthesis/order` requires biosecurity_hash matching a recent `generation-cleared` audit event, hash verified before submission
+- **B-E3:** AI-evasion sequence evades pathogen similarity screening
+  - *Mitigation:* Multi-layer screening (pathogen signatures + toxin motifs + evasion patterns + length sanity + composition), IGS-compliant screening standard, future: ML-based evasion detection
+
+### Bio-security defense layers
+
+1. **Generation layer** — every model adapter returns to base class, base class calls screener before returning
+2. **HTTP layer** — `/v1/generate/*` endpoints require `require_tenant()`, screened result in response
+3. **Audit layer** — every screening decision logged with risk_score + flags
+4. **Synthesis layer** — `/v1/synthesis/order` requires biosecurity_hash matching a cleared generation event
+5. **Vendor layer** — openclinical-ai's biosecurity screening result attached to vendor order so vendor sees what we caught
+
+### Biosecurity screening layers (5)
+
+1. **Pathogen signatures** — curated patterns for botulinum, anthrax, ricin, SARS-CoV-2, Ebola, influenza, smallpox, select agents
+2. **Toxin / virulence motifs** — disulfide loops, catalytic triads, metalloproteases, T3SS motifs
+3. **AI-evasion patterns** — polybasic stretches, low-complexity glycine-rich regions, unknown residue runs
+4. **Length sanity** — sequences too short or too long flagged
+5. **Composition** — invalid amino acid / base rates > 5% flagged
+
+Production upgrades (planned):
+- Real BLAST alignment against NCBI pathogen databases
+- HHS/USDA select agent list enforcement
+- ML-based evasion detection
+- IGS International Gene Synthesis Consortium screening (full compliance)

@@ -18,7 +18,7 @@
     <img class="brand-logo" src="assets/logo.svg" alt="openclinical-ai logo" width="36" height="36">
     <div>
       <h1 data-i18n="app.name">openclinical-ai</h1>
-      <p class="tagline" data-i18n="app.subtagline">sovereign clinical AI · Apache 2.0</p>
+      <p class="tagline" data-i18n="app.subtagline">the hub of AI for healthcare & biology · Apache 2.0</p>
     </div>
   </div>
   <div class="header-actions">
@@ -194,6 +194,32 @@
     </section>
   </div>
 
+  <!-- === Biology News tab === -->
+  <div class="tab-panel" id="panel-news">
+    <section class="card">
+      <h2 data-i18n="news.title">Biology & Biotech News</h2>
+      <p class="hint" data-i18n="news.hint">Global biology and biotechnology news. Top stories, companies to watch, and what to look forward to. Curated daily.</p>
+    </section>
+
+    <!-- Top Stories -->
+    <section class="card">
+      <h3 data-i18n="news.top_stories">Top Stories</h3>
+      <div id="news-stories" class="news-feed"></div>
+    </section>
+
+    <!-- Companies to Watch -->
+    <section class="card">
+      <h3 data-i18n="news.companies">Companies to Watch</h3>
+      <div id="news-companies" class="company-grid"></div>
+    </section>
+
+    <!-- What to Look Forward To -->
+    <section class="card">
+      <h3 data-i18n="news.upcoming">What to Look Forward To</h3>
+      <div id="news-upcoming" class="news-feed"></div>
+    </section>
+  </div>
+
   <!-- === Settings tab === -->
   <div class="tab-panel" id="panel-settings">
     <section class="card">
@@ -251,6 +277,10 @@
   <button data-tab="connect">
     <span class="tab-icon">🔗</span>
     <span data-i18n="tab.connect">Connect</span>
+  </button>
+  <button data-tab="news">
+    <span class="tab-icon">🧬</span>
+    <span data-i18n="tab.news">News</span>
   </button>
   <button data-tab="settings">
     <span class="tab-icon">⚙</span>

@@ -735,6 +735,114 @@ footer a {
 
 footer a:hover { text-decoration: underline; }
 
+/* -- biology news --------------------------------------------------------- */
+
+.news-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+
+.news-card {
+  background: var(--card-hover);
+  border: 1px solid var(--border);
+  border-radius: 0.625rem;
+  padding: 1rem;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.news-card:hover {
+  border-color: var(--brand-crimson-light);
+}
+
+.news-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.news-source {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--brand-crimson);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.news-date {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
+}
+
+.news-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 0.375rem;
+  line-height: 1.35;
+}
+
+.news-summary {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* company grid */
+
+.company-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.75rem;
+}
+
+.company-card {
+  background: var(--card-hover);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--brand-crimson);
+  border-radius: 0.625rem;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.company-name {
+  font-weight: 700;
+  font-size: 0.9375rem;
+  color: var(--text);
+}
+
+.company-location {
+  font-size: 0.75rem;
+  color: var(--brand-crimson);
+  font-weight: 500;
+}
+
+.company-focus {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.company-work {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  flex: 1;
+}
+
+.company-stage {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-top: 0.25rem;
+}
+
 /* -- utilities ------------------------------------------------------------ */
 
 .hidden { display: none !important; }

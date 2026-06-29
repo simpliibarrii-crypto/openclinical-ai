@@ -1,47 +1,39 @@
-# Node
-node_modules/
-*.log
-.env
-.env.local
-
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
 .venv/
 venv/
-*.egg-info/
+ENV/
 
-# Build artifacts
-dist/
-build/
-target/
-*.so
+# Runtime data (audit, consent, model artifacts)
+.runtime/
+data/audit/
+data/consent/
+
+# Signing keys (NEVER commit the private key)
+registry/keys/*.key
+
+# Dev tools
+run_dev_logged.sh
 
 # IDE
 .vscode/
 .idea/
 *.swp
-*.swo
-
-# OS
 .DS_Store
-Thumbs.db
 
-# Secrets (never commit)
-*.pem
-*.key
-*.p12
-secrets/
-*.env.production
+# Logs
+*.log
 
-# Test artifacts
-.coverage
-.pytest_cache/
-.tox/
-
-# ML model artifacts (large binaries belong in registry, not repo)
-*.pt
-*.pth
-*.onnx
-*.gguf
-checkpoints/
+# Build artifacts
+dist/
+build/

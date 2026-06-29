@@ -9,6 +9,11 @@ Tenant types:
 - platform-managed: openclinical-ai holds the key (faster onboarding)
 - shared: shared key (NOT recommended for healthcare — MVP/demo only)
 
+Affordability tiers (see runtime.affordability):
+- critical_access_rural, ltc_home, home_care_agency,
+- regional_hospital, academic_medical_center,
+- biotech_research, biotech_sovereign
+
 In production, tenant records would live in a database. For MVP, JSON file.
 """
 from __future__ import annotations
@@ -17,7 +22,6 @@ import json
 import logging
 import secrets
 import time
-import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -36,6 +40,7 @@ class Tenant:
     contact_email: str = ""
     created_at: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
+    tier: str = "home_care_agency"  # affordability tier — see runtime.affordability
 
 
 class TenantRegistry:
@@ -68,7 +73,7 @@ class TenantRegistry:
             json.dump(data, f, indent=2)
 
     def _seed_demo_tenants(self) -> None:
-        """Create demo tenants for local development."""
+        """Create demo tenants for local development — covers all tiers."""
         demo_tenants = [
             {
                 "id": "bayshore-ottawa",
@@ -79,6 +84,7 @@ class TenantRegistry:
                 "contact_email": "ops-ottawa@bayshore.ca",
                 "created_at": "2026-06-29T00:00:00Z",
                 "metadata": {"province": "ON", "city": "Ottawa"},
+                "tier": "home_care_agency",
             },
             {
                 "id": "carefor-ottawa",
@@ -89,6 +95,7 @@ class TenantRegistry:
                 "contact_email": "it@carefor.ca",
                 "created_at": "2026-06-29T00:00:00Z",
                 "metadata": {"province": "ON", "city": "Ottawa"},
+                "tier": "home_care_agency",
             },
             {
                 "id": "vha-toronto",
@@ -99,6 +106,29 @@ class TenantRegistry:
                 "contact_email": "tech@vha.ca",
                 "created_at": "2026-06-29T00:00:00Z",
                 "metadata": {"province": "ON", "city": "Toronto"},
+                "tier": "home_care_agency",
+            },
+            {
+                "id": "gary-j-armstrong",
+                "name": "Garry J. Armstrong Retirement Home",
+                "encryption_model": "agency-byok",
+                "api_key_hash": self._hash_key("demo-armstrong-key"),
+                "byok_key_ref": "aws-kms:arn:aws:kms:ca-central-1:777788889999:key/gary-j-armstrong",
+                "contact_email": "admin@gjah.ca",
+                "created_at": "2026-06-29T00:00:00Z",
+                "metadata": {"province": "ON", "city": "Ottawa"},
+                "tier": "ltc_home",
+            },
+            {
+                "id": "toh-academic",
+                "name": "The Ottawa Hospital — Academic",
+                "encryption_model": "agency-byok",
+                "api_key_hash": self._hash_key("demo-toh-key"),
+                "byok_key_ref": "aws-kms:arn:aws:kms:ca-central-1:aaaabbbbcccc:key/toh-academic",
+                "contact_email": "ai-research@toh.ca",
+                "created_at": "2026-06-29T00:00:00Z",
+                "metadata": {"province": "ON", "city": "Ottawa"},
+                "tier": "academic_medical_center",
             },
         ]
         for t in demo_tenants:
@@ -132,6 +162,7 @@ class TenantRegistry:
                 "id": t.id,
                 "name": t.name,
                 "encryption_model": t.encryption_model,
+                "tier": t.tier,
                 "metadata": t.metadata,
             }
             for t in self.tenants.values()
@@ -143,6 +174,7 @@ class TenantRegistry:
         encryption_model: str = "platform-managed",
         contact_email: str = "",
         metadata: dict[str, Any] | None = None,
+        tier: str = "home_care_agency",
     ) -> tuple[Tenant, str]:
         """Create a new tenant + return (tenant, plaintext_api_key).
 
@@ -160,10 +192,11 @@ class TenantRegistry:
             contact_email=contact_email,
             created_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             metadata=metadata or {},
+            tier=tier,
         )
 
         self.tenants[tenant_id] = tenant
         self._api_key_to_tenant[tenant.api_key_hash] = tenant_id
         self._save()
-        logger.info("created tenant %s (%s)", tenant_id, encryption_model)
+        logger.info("created tenant %s (%s, tier=%s)", tenant_id, encryption_model, tier)
         return tenant, api_key

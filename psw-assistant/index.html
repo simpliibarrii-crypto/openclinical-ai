@@ -69,8 +69,34 @@
         <input id="runtime-url" value="http://localhost:8088">
       </div>
 
+      <div class="field">
+        <label for="facility-id" data-i18n="setup.facility">Facility ID</label>
+        <input id="facility-id" placeholder="e.g. gja-main" value="gja-main">
+      </div>
+
+      <div class="field">
+        <label for="floor-id" data-i18n="setup.floor">Floor</label>
+        <select id="floor-id">
+          <option value="">— none —</option>
+          <option value="2F">2F — Dementia (Margaret O'Donnell, Jean-Paul Tremblay, Harold Chen)</option>
+          <option value="3F">3F — Dementia (Betty Williams, Frank Kowalski)</option>
+        </select>
+      </div>
+
       <button id="signin-btn" class="primary" data-i18n="setup.signin">Sign in & load my visits</button>
       <div id="setup-message" class="message hidden"></div>
+    </section>
+
+    <!-- Call bell notification bar -->
+    <section class="card hidden" id="callbell-notification">
+      <div class="callbell-banner">
+        <span class="callbell-alert-icon">🔔</span>
+        <div class="callbell-content">
+          <div class="callbell-header" id="callbell-msg">Call bell alert</div>
+          <div class="callbell-detail" id="callbell-detail"></div>
+        </div>
+        <button id="callbell-dismiss" class="secondary small">✕</button>
+      </div>
     </section>
 
     <!-- Today's visits -->

@@ -4,10 +4,11 @@
 
   "app.name": "openclinical-ai",
   "app.tagline": "Assistant de visites à domicile",
-  "app.subtagline": "IA clinique souveraine · Apache 2.0",
+  "app.subtagline": "le hub d'IA pour la santé & la biologie · Apache 2.0",
 
   "tab.visits": "Visites",
   "tab.connect": "Connecter",
+  "tab.news": "Actualités",
   "tab.settings": "Paramètres",
 
   "setup.title": "Connectez-vous à votre agence",
@@ -125,6 +126,12 @@
   "settings.license": "Licence",
   "settings.repo": "GitHub",
   "settings.signout": "Déconnexion",
+
+  "news.title": "Actualités Biologie & Biotech",
+  "news.hint": "Actualités mondiales en biologie et biotechnologie. Grands titres, entreprises à surveiller et événements à venir. Mis à jour quotidiennement.",
+  "news.top_stories": "Grands titres",
+  "news.companies": "Entreprises à surveiller",
+  "news.upcoming": "À venir",
 
   "server.checking": "vérification…",
   "server.unreachable": "runtime inaccessible",

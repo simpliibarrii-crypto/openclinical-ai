@@ -548,6 +548,69 @@ function switchTab(name) {
   if (button) button.classList.add('active');
 }
 
+// -- biology news -----------------------------------------------------------
+
+async function loadBioNews() {
+  try {
+    const res = await fetch(`${state.runtimeUrl}/v1/bio-news`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    renderBioNews(data);
+  } catch (e) {
+    console.warn('Bio news fetch failed:', e.message);
+  }
+}
+
+function renderBioNews(data) {
+  // Top stories
+  const storiesEl = document.getElementById('news-stories');
+  if (storiesEl && data.top_stories) {
+    storiesEl.innerHTML = data.top_stories.map(s => `
+      <div class="news-card story">
+        <div class="news-meta">
+          <span class="news-source">${h(s.source)}</span>
+          <span class="news-date">${h(s.date)}</span>
+          <span class="badge" style="background:var(--brand-crimson-bg);color:var(--brand-crimson-dark)">${h((data.categories || {})[s.category] || s.category)}</span>
+        </div>
+        <div class="news-title">${h(s.title)}</div>
+        <div class="news-summary">${h(s.summary)}</div>
+      </div>
+    `).join('');
+  }
+
+  // Companies to watch
+  const companiesEl = document.getElementById('news-companies');
+  if (companiesEl && data.companies_to_watch) {
+    companiesEl.innerHTML = data.companies_to_watch.map(c => `
+      <div class="company-card">
+        <div class="company-name">${h(c.name)}</div>
+        <div class="company-location">${h(c.location)}</div>
+        <div class="company-focus"><strong>Focus:</strong> ${h(c.focus)}</div>
+        <div class="company-work">${h(c.what_they_are_working_on)}</div>
+        <div class="company-stage">${h(c.stage)}</div>
+      </div>
+    `).join('');
+  }
+
+  // What to look forward to
+  const upcomingEl = document.getElementById('news-upcoming');
+  if (upcomingEl && data.what_to_look_forward_to) {
+    upcomingEl.innerHTML = data.what_to_look_forward_to.map(u => {
+      const typeLabels = { conference: '📅 Conference', regulatory: '⚖ Regulatory', milestone: '🎯 Milestone' };
+      return `
+        <div class="news-card upcoming">
+          <div class="news-meta">
+            <span class="news-date">${h(u.date)}</span>
+            <span class="badge">${typeLabels[u.type] || u.type}</span>
+          </div>
+          <div class="news-title">${h(u.event)}</div>
+          <div class="news-summary">${h(u.description)}</div>
+        </div>
+      `;
+    }).join('');
+  }
+}
+
 // -- wiring -----------------------------------------------------------------
 
 async function init() {
@@ -599,9 +662,10 @@ async function init() {
   // Init voice
   initVoice();
 
-  // Load tenants + check server
+  // Load tenants + check server + bio news
   checkServer();
   loadTenants();
+  loadBioNews();
 
   // Restore session if available
   if (restoreSession()) {

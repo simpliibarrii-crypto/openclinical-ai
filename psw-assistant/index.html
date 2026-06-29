@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>openclinical-ai — PSW Shift Handoff Assistant</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <div class="brand">
+    <span class="logo">⊕</span>
+    <div>
+      <h1>openclinical-ai</h1>
+      <p class="tagline">PSW Shift Handoff Assistant · sovereign clinical AI · Apache 2.0</p>
+    </div>
+  </div>
+  <div class="status">
+    <span id="server-status" class="status-dot status-unknown"></span>
+    <span id="server-status-text">checking…</span>
+  </div>
+</header>
+
+<main>
+  <section class="card" id="setup-card">
+    <h2>Setup</h2>
+    <p class="hint">One-time setup. PSW signs in, resident + consent are recorded for this device.</p>
+    <div class="field">
+      <label for="psw-id">PSW ID</label>
+      <input id="psw-id" placeholder="e.g. psw-brian" value="psw-brian">
+    </div>
+    <div class="field">
+      <label for="resident-id">Resident ID (FHIR Patient.id)</label>
+      <input id="resident-id" placeholder="e.g. resident-001" value="resident-001">
+    </div>
+    <div class="field">
+      <label for="runtime-url">Runtime URL</label>
+      <input id="runtime-url" placeholder="http://localhost:8088" value="http://localhost:8088">
+    </div>
+    <button id="grant-consent-btn" class="primary">Grant consent &amp; continue</button>
+    <div id="setup-message" class="message hidden"></div>
+  </section>
+
+  <section class="card hidden" id="handoff-card">
+    <h2>Shift handoff — <span id="resident-label"></span></h2>
+
+    <div class="grid">
+      <div class="field">
+        <label for="bp">BP (mmHg)</label>
+        <input id="bp" type="text" inputmode="numeric" placeholder="120/80">
+      </div>
+      <div class="field">
+        <label for="hr">HR (bpm)</label>
+        <input id="hr" type="number" inputmode="numeric" placeholder="72">
+      </div>
+      <div class="field">
+        <label for="temp">Temp (°C)</label>
+        <input id="temp" type="number" step="0.1" inputmode="decimal" placeholder="36.8">
+      </div>
+      <div class="field">
+        <label for="spo2">SpO2 (%)</label>
+        <input id="spo2" type="number" inputmode="numeric" placeholder="97">
+      </div>
+      <div class="field">
+        <label for="pain">Pain (0-10)</label>
+        <input id="pain" type="number" min="0" max="10" inputmode="numeric" placeholder="0">
+      </div>
+      <div class="field">
+        <label for="meal">Meal (%)</label>
+        <input id="meal" type="number" min="0" max="100" inputmode="numeric" placeholder="75">
+      </div>
+      <div class="field wide">
+        <label for="ambulation">Ambulation / mobility</label>
+        <input id="ambulation" type="text" placeholder="e.g. walked 20m with walker">
+      </div>
+      <div class="field wide">
+        <label for="mood">Mood</label>
+        <input id="mood" type="text" placeholder="e.g. calm, alert, confused">
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="notes">Free-text shift notes</label>
+      <textarea id="notes" rows="4" placeholder="Tap mic to dictate, or type here. e.g. 'BP 145/90, walked 20m with walker, calm mood, daughter visited, refused morning meds.'"></textarea>
+      <div class="voice-controls">
+        <button id="voice-btn" class="voice" aria-label="Start voice input">
+          <span class="mic-icon">🎙</span>
+          <span id="voice-btn-text">Start dictation</span>
+        </button>
+        <span id="voice-status" class="voice-status"></span>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="submit-btn" class="primary">Generate handoff summary</button>
+      <button id="reset-btn" class="secondary">Clear</button>
+    </div>
+
+    <div id="handoff-message" class="message hidden"></div>
+  </section>
+
+  <section class="card hidden" id="result-card">
+    <h2>Generated handoff summary</h2>
+    <div id="result-content"></div>
+    <div class="actions">
+      <button id="new-handoff-btn" class="secondary">Start new handoff</button>
+    </div>
+  </section>
+
+  <section class="card hidden" id="audit-card">
+    <h2>Recent audit events</h2>
+    <p class="hint">Every inference on this device is logged. Audit ID is below the summary.</p>
+    <div id="audit-content"></div>
+    <div class="actions">
+      <button id="refresh-audit-btn" class="secondary">Refresh audit</button>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <p>
+    <strong>openclinical-ai</strong> — sovereign open substrate for clinical AI.
+    Apache 2.0 · <a href="https://github.com/simpliibarrii-crypto/openclinical-ai" target="_blank" rel="noopener">github.com/simpliibarrii-crypto/openclinical-ai</a>
+  </p>
+  <p class="small">
+    This MVP uses heuristic shift-handoff categorization — not a clinical LLM.
+    Real clinical AI models plug into the same runtime via the model registry.
+    All processing happens in your jurisdiction. No data leaves your network.
+  </p>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

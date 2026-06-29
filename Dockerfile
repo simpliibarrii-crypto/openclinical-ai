@@ -34,9 +34,10 @@ COPY tools/ /app/tools/
 ENV OPENCLINICAL_REGISTRY_PATH=/app/registry \
     OPENCLINICAL_AUDIT_PATH=/var/lib/openclinical/audit \
     OPENCLINICAL_CONSENT_PATH=/var/lib/openclinical/consent \
+    OPENCLINICAL_TENANTS_PATH=/var/lib/openclinical/tenants \
     OPENCLINICAL_CORS_ORIGINS=*
 
-RUN mkdir -p /var/lib/openclinical/audit /var/lib/openclinical/consent
+RUN mkdir -p /var/lib/openclinical/audit /var/lib/openclinical/consent /var/lib/openclinical/tenants
 
 EXPOSE 8088
 

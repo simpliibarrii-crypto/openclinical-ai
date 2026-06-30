@@ -1,0 +1,70 @@
+{
+  "name": "OpenClinical AI",
+  "short_description": "Sovereign Canadian AI for healthcare delivery",
+  "repository": "https://github.com/simpliibarrii-crypto/openclinical-ai",
+  
+  "app_icons": [
+    {
+      "platform": "ios",
+      "path": "assets/ios-icon-1024x1024.png",
+      "size_description": "1024×1024 pixels for iOS App Store"
+    },
+    {
+      "platform": "android",
+      "path": "assets/android-icon-512x512.png", 
+      "size_description": "512×512 pixels for Google Play Store"
+    },
+    {
+      "platform": "macos",
+      "path": "assets/mac-icon-1024x1024.png",
+      "size_description": "1024×1024 pixels for macOS App Store"
+    }
+  ],
+  
+  "screenshots": [
+    {
+      "platform": "ios",
+      "path": "assets/ios-screenshot-1.png",
+      "description": "OpenClinical AI dashboard with tenant overview"
+    },
+    {
+      "platform": "android", 
+      "path": "assets/android-screenshot-1.png",
+      "description": "Mobile compliance interface with audit trail"
+    },
+    {
+      "platform": "web",
+      "path": "assets/web-dashboard.png",
+      "description": "Web-based AI inference management console"
+    }
+  ],
+  
+  "banner_images": [
+    {
+      "platform": "app_store",
+      "path": "assets/ios-banner-1536x768.jpg",
+      "size_description": "1536×768 pixels for App Store header"
+    },
+    {
+      "platform": "play_store",
+      "path": "assets/android-banner-2560x1440.jpg", 
+      "size_description": "2560×1440 pixels for Play Store header"
+    }
+  ],
+  
+  "store_metadata": {
+    "apple_app_store": {
+      "bundle_id": "com.openclinical.ai",
+      "categories": ["Healthcare & Fitness", "Business"],
+      "keywords": ["AI", "Healthcare", "Sovereign", "Canada", "Compliance", "Clinical", "Biology", "Medical"],
+      "description": "Enterprise-grade AI deployment substrate for Canadian healthcare systems. Local-first inference with HIPAA/PHIPA compliance, biosecurity screening, and cost transparency for 10,000+ concurrent users across Ontario retirement homes and hospitals."
+    },
+    
+    "google_play_store": {
+      "package_name": "com.openclinical.ai",
+      "categories": ["Health & Fitness", "Business"],
+      "keywords": ["AI", "healthcare", "sovereign", "Canada", "compliance", "clinical", "biology", "medical", "privacy", "security"],
+      "description": "Canadian sovereign AI for healthcare delivery. Local-first inference with PHIPA/HIPAA compliance, biosecurity screening, and cost transparency. Deployed at Gary J Armstrong Retirement Home serving 10,000+ users."
+    }
+  }
+}

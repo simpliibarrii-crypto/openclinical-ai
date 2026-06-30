@@ -36,4 +36,5 @@ run_dev_logged.sh
 
 # Build artifacts
 dist/
-build/
+build/hf-space/
+hf-space/

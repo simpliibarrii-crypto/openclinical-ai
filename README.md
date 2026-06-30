@@ -1,7 +1,7 @@
 ---
 language:
 - en
-license: mit
+license: apache-2.0
 tags:
 - openclinical-ai
 - healthcare
@@ -11,6 +11,15 @@ tags:
 library_name: custom
 pipeline_tag: text-generation
 ---
+
+<p align="center">
+  <a href="https://huggingface.co/bclermo/openclinical-ai"><img src="https://img.shields.io/badge/%F0%9F%A4%97-Hugging%20Face%20Model-FFD21E?style=flat-square" alt="Hugging Face Model"></a>
+  <a href="https://huggingface.co/spaces/bclermo/openclinical-ai"><img src="https://img.shields.io/badge/%F0%9F%9A%80-Hugging%20Face%20Space-FF6B6B?style=flat-square" alt="Hugging Face Space"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue?style=flat-square" alt="License"></a>
+  <a href="https://github.com/simpliibarrii-crypto/openclinical-ai/releases"><img src="https://img.shields.io/github/v/release/simpliibarrii-crypto/openclinical-ai?style=flat-square" alt="Release"></a>
+  <a href="https://github.com/simpliibarrii-crypto/openclinical-ai/actions"><img src="https://img.shields.io/github/actions/workflow/status/simpliibarrii-crypto/openclinical-ai/ci-python.yml?style=flat-square&label=CI" alt="CI"></a>
+  <a href="CODE_OF_CONDUCT.md"><img src="https://img.shields.io/badge/Contributor%20Covenant-2.0-purple?style=flat-square" alt="Code of Conduct"></a>
+</p>
 
 # OpenClinical AI
 

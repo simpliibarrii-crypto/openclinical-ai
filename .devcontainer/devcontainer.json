@@ -1,0 +1,43 @@
+{
+  "name": "OpenClinical AI",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "forwardPorts": [8000],
+  "portsAttributes": {
+    "8000": {
+      "label": "Runtime API",
+      "onAutoForward": "notify"
+    }
+  },
+  "postCreateCommand": "pip install -e . && pip install -r requirements.txt",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-python.black-formatter",
+        "ms-python.ruff",
+        "ms-python.mypy-type-checker",
+        "tamasfe.even-better-toml",
+        "github.vscode-github-actions"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.terminal.activateEnvironment": true,
+        "python.testing.pytestEnabled": true,
+        "python.testing.pytestArgs": ["tests"],
+        "[python]": {
+          "editor.formatOnSave": true,
+          "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+          },
+          "editor.defaultFormatter": "ms-python.black-formatter"
+        },
+        "black-formatter.args": ["--line-length=100"],
+        "ruff.args": ["--line-length=100"],
+        "mypy-type-checker.args": ["--strict"]
+      }
+    }
+  }
+}

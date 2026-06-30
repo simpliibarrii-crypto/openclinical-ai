@@ -1,0 +1,17 @@
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "automated"
+    allow:
+      - dependency-type: "direct"
+    ignore:
+      - dependency-name: "setuptools"
+    commit-message:
+      prefix: "deps"
+      include: "scope"

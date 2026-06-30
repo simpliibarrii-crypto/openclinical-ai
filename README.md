@@ -17,6 +17,23 @@ pipeline_tag: text-generation
 short_description: Sovereign Canadian-built clinical AI deployment substrate for healthcare systems — HIPAA-compliant, budget-agnostic, zero-trust.
 ---
 
+## Table of Contents
+
+- [Strategic Position](#strategic-position)
+- [Core Capabilities](#core-capabilities)
+- [Current Deployment](#current-deployment)
+- [Affordability Innovation](#affordability-innovation)
+- [Technical Edge](#technical-edge)
+- [Deployment Options](#deployment-options)
+- [Architecture](#architecture)
+- [Quick Start](#quick-start)
+- [API Reference](#api-reference)
+- [Examples](#examples)
+- [FAQ](#faq)
+- [Troubleshooting](#troubleshooting)
+- [Security](#security)
+- [Citation](#citation)
+
 <p align="center">
   <a href="https://huggingface.co/bclermo/openclinical-ai"><img src="https://img.shields.io/badge/%F0%9F%A4%97-Hugging%20Face%20Model-FFD21E?style=flat-square" alt="Hugging Face Model"></a>
   <a href="https://huggingface.co/spaces/bclermo/openclinical-ai"><img src="https://img.shields.io/badge/%F0%9F%9A%80-Hugging%20Face%20Space-FF6B6B?style=flat-square" alt="Hugging Face Space"></a>
@@ -205,6 +222,160 @@ pytest -q
 ## Architecture
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## API Reference
+
+The OpenClinical AI runtime exposes a REST API at `http://localhost:8000`. Key endpoints:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/health` | Runtime health check |
+| GET | `/models` | List loaded models |
+| POST | `/v1/auth/signin` | Authenticate a PSW |
+| POST | `/v1/inference` | Run clinical inference |
+| POST | `/v1/consent/grant` | Grant patient consent |
+| GET | `/v1/visits/today` | Today's PSW visits |
+| POST | `/v1/generate/protein` | Generate protein sequence |
+
+Full API docs are available at `/docs` (Swagger UI) when the server is running.
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed endpoint documentation.
+
+## Examples
+
+### Quick Start
+
+```bash
+# Install the package
+pip install -e .
+
+# Start the runtime server
+uvicorn runtime.server:app --host 0.0.0.0 --port 8000
+
+# In another terminal, run the quickstart example
+python examples/quickstart_inference.py
+```
+
+### Clinical Note Inference
+
+Submit a PSW shift handoff note for structured output:
+
+```python
+import httpx
+
+resp = httpx.post(
+    "http://localhost:8000/v1/inference",
+    headers={"X-Tenant-ID": "bayshore-ottawa", "X-Tenant-API-Key": "<token>", "X-PSW-ID": "psw-jdoe"},
+    json={
+        "tenant_id": "bayshore-ottawa",
+        "model_id": "psw-shift-handoff",
+        "patient_id": "client-001",
+        "inputs": {
+            "notes": "Mrs. Smith was alert. BP 128/82, HR 72. Ate 75% of breakfast.",
+            "observations": {"bp": "128/82", "hr": 72, "meal_pct": 75},
+        },
+    },
+)
+print(resp.json()["outputs"]["shift_handoff"]["summary"])
+```
+
+### Biology AI Generation
+
+Generate a protein sequence with biosecurity screening:
+
+```python
+import httpx
+
+resp = httpx.post(
+    "http://localhost:8000/v1/generate/protein",
+    headers={"X-Tenant-ID": "bayshore-ottawa", "X-Tenant-API-Key": "<token>", "X-PSW-ID": "psw-jdoe"},
+    json={
+        "tenant_id": "bayshore-ottawa",
+        "model_id": "proteinmpnn-inverse-fold",
+        "inputs": {"backbone_pdb": "example.pdb"},
+    },
+)
+print(f"Sequence: {resp.json()['sequence'][:50]}...")
+```
+
+## FAQ
+
+**Q: What is OpenClinical AI?**
+A: A sovereign Canadian-built deployment substrate for biology AI and clinical AI, designed for healthcare systems. It provides local-first inference with tenant isolation, consent management, and audit trails.
+
+**Q: Who is this for?**
+A: PSWs, nurses, doctors, researchers, and patients. Currently deployed at Gary J Armstrong Retirement Home in Ottawa.
+
+**Q: How is this different from general-purpose AI?**
+A: OpenClinical AI is healthcare-specific — it includes consent propagation, FHIR-native integration, PHI-aware audit trails, biosecurity screening for biology AI, and affordability tiers designed for the Canadian healthcare system.
+
+**Q: Does it require a GPU?**
+A: No. The runtime works on CPU for heuristic models. GPU is used for biology AI generation models and large clinical LLMs. The affordability tier system automatically selects the right model family and quantization for your hardware and budget.
+
+**Q: How is patient data protected?**
+A: All inference is tenant-scoped. No cross-tenant visibility. Audit logs are per-tenant only. Consent is required before any patient data is processed. Encryption models support BYOK.
+
+**Q: What compliance standards are supported?**
+A: HIPAA, PHIPA, EU AI Act, and Health Canada alignment are built into the architecture.
+
+**Q: How do I deploy this?**
+A: Single container with Docker Compose (recommended for development), Kubernetes for production, or single-node edge deployment for rural/remote settings. See [Deployment Options](#deployment-options).
+
+**Q: How much does it cost?**
+A: The software is open source (Apache 2.0). Inference costs vary by tier — home care AI on V4-Flash is ~$0.75/month vs GPT-5.5 at ~$75.00. See the [Affordability Innovation](#affordability-innovation) section.
+
+## Troubleshooting
+
+**Server won't start**
+```
+Error: [Errno 98] Address already in use
+```
+The default port 8000 may be in use. Start on a different port:
+```bash
+uvicorn runtime.server:app --host 0.0.0.0 --port 8001
+```
+
+**"Unknown tenant" error**
+Verify the tenant exists and the API key is correct. List available tenants:
+```bash
+curl http://localhost:8000/v1/tenants
+```
+
+**"Consent denied" error**
+The patient has not granted consent for the requested model scope. Grant consent first:
+```bash
+curl -X POST http://localhost:8000/v1/consent/grant \
+  -H "Content-Type: application/json" \
+  -d '{"tenant_id": "bayshore-ottawa", "patient_id": "client-001", "scope": ["*"], "granted_by": "psw-jdoe"}'
+```
+
+**Model not found**
+The model must be registered in the model registry with a valid signed manifest. See [registry/README.md](registry/README.md).
+
+**Tests fail**
+Ensure the dev dependencies are installed and run from the project root:
+```bash
+pip install -e . pytest pynacl
+pytest -q
+```
+
+**Still stuck?**
+Open an issue at [github.com/simpliibarrii-crypto/openclinical-ai/issues](https://github.com/simpliibarrii-crypto/openclinical-ai/issues) with the output of `curl http://localhost:8000/health` and relevant logs.
+
+## Citation
+
+If you use OpenClinical AI in your research, please cite:
+
+```bibtex
+@software{clerjuste2025openclinical,
+  author = {Clerjuste, Barry},
+  title = {{OpenClinical AI}: Sovereign Canadian Clinical AI Deployment Substrate},
+  year = {2025},
+  url = {https://github.com/simpliibarrii-crypto/openclinical-ai},
+  version = {0.1.0},
+  license = {Apache-2.0},
+}
+```
 
 ## Security
 

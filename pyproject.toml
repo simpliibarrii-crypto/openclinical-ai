@@ -28,3 +28,43 @@ include = ["runtime*", "registry*", "audit_gateway*", "consent*", "fhir*", "psw_
 
 [tool.setuptools.package-data]
 "*" = ["*.json", "*.yaml", "*.yml", "*.html", "*.css", "*.js"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.4",
+    "black>=24.0",
+    "mypy>=1.10",
+    "bandit>=1.7",
+    "pip-audit>=2.7",
+    "typer>=0.12",
+]
+
+[project.scripts]
+openclinical = "runtime.cli:app"
+
+[tool.mypy]
+strict = true
+ignore_missing_imports = true
+disallow_untyped_defs = true
+disallow_any_unimported = false
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_return_any = true
+warn_unreachable = true
+exclude = [
+    "tests/",
+    "examples/",
+    ".devcontainer/",
+    ".github/",
+]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q --tb=short"
+
+[tool.bandit]
+exclude_dirs = ["tests", "examples", ".devcontainer", ".github"]
+skips = ["B101", "B303", "B311"]

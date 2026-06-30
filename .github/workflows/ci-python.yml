@@ -11,24 +11,31 @@ permissions:
 
 jobs:
   python:
-    name: Python tests
+    name: Python tests (${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.12']
     if: hashFiles('pyproject.toml') != ''
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: ${{ matrix.python-version }}
       - name: Install package and test tools
         run: |
           python -m pip install --upgrade pip
-          pip install -e . pytest ruff black pynacl
+          pip install -e . pytest ruff black mypy bandit pip-audit pynacl
       - name: Lint
         run: ruff check .
-        continue-on-error: true
       - name: Format check
         run: black --check .
-        continue-on-error: true
+      - name: Type check
+        run: mypy runtime/
+      - name: Security lint
+        run: bandit -c pyproject.toml -r runtime/ || true
+      - name: Dependency audit
+        run: pip-audit
       - name: Tests
         run: pytest -q
 
@@ -59,11 +66,9 @@ jobs:
       - name: Cargo check root
         if: hashFiles('Cargo.toml') != ''
         run: cargo check
-        continue-on-error: true
       - name: Cargo check Tauri
         if: hashFiles('src-tauri/Cargo.toml') != ''
         run: cargo check --manifest-path src-tauri/Cargo.toml
-        continue-on-error: true
 
   secrets:
     name: Secret scan
@@ -71,4 +76,3 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: gitleaks/gitleaks-action@v2
-        continue-on-error: true

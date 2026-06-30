@@ -2,6 +2,10 @@
 language:
 - en
 license: apache-2.0
+title: OpenClinical AI
+emoji: 🏥
+colorFrom: blue
+colorTo: red
 tags:
 - openclinical-ai
 - healthcare
@@ -10,6 +14,7 @@ tags:
 - sovereign-computing
 library_name: custom
 pipeline_tag: text-generation
+short_description: Sovereign Canadian-built clinical AI deployment substrate for healthcare systems — HIPAA-compliant, budget-agnostic, zero-trust.
 ---
 
 <p align="center">

@@ -11,7 +11,7 @@
     "intended_use": "Personal Support Workers (PSWs) in long-term care and retirement home settings to document end-of-shift handoffs via voice or structured input. Generates FHIR-compatible structured observations and a human-readable summary.",
     "training_data": "MVP uses deterministic heuristics (no ML training). Future versions will be fine-tuned on anonymized PSW shift notes.",
     "evaluation_metrics": {
-      "mvp_validation": "manual review by Brian Clerjuste, PSW with 10 years experience",
+      "mvp_validation": "manual review by Barry Clerjuste, PSW with 10 years experience",
       "next_milestone": "pilot at Gary J Armstrong Retirement Home"
     },
     "ethical_considerations": "Designed for augmenting \u2014 not replacing \u2014 PSW judgment. All outputs require PSW review before being included in the clinical record. Patient consent is required before any processing. Audit trail captures every inference.",

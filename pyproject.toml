@@ -2,7 +2,7 @@
 name = "openclinical-ai"
 version = "0.1.0"
 description = "Open sovereign deployment substrate for biology AI and clinical AI in Canada"
-authors = [{name = "Brian Clerjuste", email = "bclerjuste@gmail.com"}]
+authors = [{name = "Barry Clerjuste", email = "bclerjuste@gmail.com"}]
 license = {text = "Apache-2.0"}
 readme = "README.md"
 requires-python = ">=3.10"

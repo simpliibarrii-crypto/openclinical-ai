@@ -68,7 +68,7 @@ def main() -> int:
                 "versions will be fine-tuned on anonymized PSW shift notes."
             ),
             "evaluation_metrics": {
-                "mvp_validation": "manual review by Brian Clerjuste, PSW with 10 years experience",
+                "mvp_validation": "manual review by Barry Clerjuste, PSW with 10 years experience",
                 "next_milestone": "pilot at Gary J Armstrong Retirement Home",
             },
             "ethical_considerations": (

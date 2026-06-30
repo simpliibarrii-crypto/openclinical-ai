@@ -8,7 +8,7 @@
 **Match commitments:** $2.5M from NRC-IRAP AI Assist + Ontario BioCreate + partner in-kind
 **Total project value:** $11M over 3 years
 **Lead organization:** openclinical-ai (Apache 2.0, Ottawa-based)
-**Principal investigator / founder:** Brian Clerjuste, Personal Support Worker (10 years nursing, Ottawa)
+**Principal investigator / founder:** Barry Clerjuste, Personal Support Worker (10 years nursing, Ottawa)
 **Technical lead:** Engineering collaboration via open-source AI-augmented development
 **Date:** June 2026
 **Status:** Draft for partner review
@@ -161,7 +161,7 @@ That's the equity promise.
 
 ## 4. Team
 
-### 4.1 Founder / Principal Investigator — Brian Clerjuste
+### 4.1 Founder / Principal Investigator — Barry Clerjuste
 
 **Role:** Vision, PSW domain expertise, Ontario LTC operations knowledge, Ottawa relationships, federal procurement readiness.
 
@@ -486,7 +486,7 @@ See `docs/THREAT-MODEL.md` for the substrate's threat model. Reference architect
 
 ## Signature
 
-**Brian Clerjuste** — Founder, openclinical-ai
+**Barry Clerjuste** — Founder, openclinical-ai
 Personal Support Worker, Gary J Armstrong Retirement Home, Ottawa
 June 2026
 

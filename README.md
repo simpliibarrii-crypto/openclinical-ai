@@ -1,10 +1,21 @@
+---
+language:
+- en
+license: mit
+tags:
+- openclinical-ai
+- healthcare
+- hipaa
+- clinical-ai
+- sovereign-computing
+library_name: custom
+pipeline_tag: text-generation
+---
+
 # OpenClinical AI
 
 <p align="center">
-  <a href="https://github.com/simpliibarrii-crypto/openclinical-ai"><img alt="OpenClinical AI" src="https://img.shields.io/badge/Canadian-Clinical_AI-8B0000?style=for-the-badge&labelColor=05060A&color=dee2e6"></a>
-  <a href="https://github.com/simpliibarrii-crypto/raven-ai"><img alt="Raven Clinical Layer" src="https://img.shields.io/badge/Raven-Clinical_Layer-C8102E?style=for-the-badge&labelColor=05060A"></a>
-  <img alt="Stars" src="https://img.shields.io/github/stars/simpliibarrii-crypto/openclinical-ai?style=for-the-badge&color=goldenrod&label=stars&logo=github"></a>
-  <img alt="License" src="https://img.shields.io/github/license/simpliibarrii-crypto/openclinical-ai?style=for-the-badge&color=brightgreen"></a>
+   <img src="assets/openclinical-logo.svg" alt="OpenClinical AI Logo" width="200" height="200" />
 </p>
 
 <p align="center">
@@ -12,7 +23,18 @@
 </p>
 
 <p align="center">
-  <strong>Built for PSWs, nurses, doctors, researchers, and patients. Deployed at Gary J Armstrong Retirement Home (Ottawa) and scaling across Ontario.</strong>
+   <strong>Built for PSWs, nurses, doctors, researchers, and patients. Deployed at Gary J Armstrong Retirement Home (Ottawa) and scaling across Ontario.</strong>
+</p>
+
+<p align="center">
+   <a href="https://github.com/simpliibarrii-crypto/openclinical-ai"><img alt="OpenClinical AI" src="https://img.shields.io/badge/Canadian-Clinical_AI-8B0000?style=for-the-badge&labelColor=dee2e6&color=dee2e6"></a>
+   <a href="https://github.com/simpliibarrii-crypto/raven-ai"><img alt="Raven Clinical Layer" src="https://img.shields.io/badge/Raven-Clinical_Layer-C8102E?style=for-the-badge&labelColor=05060A"></a>
+   <img alt="Stars" src="https://img.shields.io/github/stars/simpliibarrii-crypto/openclinical-ai?style=for-the-badge&color=goldenrod&label=stars&logo=github"></a>
+   <img alt="License" src="https://img.shields.io/github/license/simpliibarrii-crypto/openclinical-ai?style=for-the-badge&color=brightgreen"></a>
+</p>
+
+<p align="center">
+   <img src="assets/openclinical-banner.svg" alt="OpenClinical AI Banner" width="100%" />
 </p>
 
 ## Strategic Position

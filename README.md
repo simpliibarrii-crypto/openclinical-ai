@@ -151,7 +151,7 @@ pytest -q
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed technical design.
 
 <div align="center">
-  <img src="https://mermaid.icu/go/diagrams/Architecture?transparent=1&embed=1" alt="Architecture Diagram" width="100%"/>
+  <p><em>Architecture diagram available in <a href="docs/ARCHITECTURE.md">docs/ARCHITECTURE.md</a></em></p>
 </div>
 
 ## Current State
